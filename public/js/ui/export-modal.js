@@ -41,7 +41,7 @@ export function openExport(ed) {
     const eng = new Engine(ed.assets);
     eng.configure({ spec, transcript: ed.transcript, analysis: ed.analysis, meta: ed.project.meta, resolution: +res.value });
     status.textContent = `${label}Loading fonts, stickers and effects…`;
-    await eng.prepare({ resolveGif: ed.resolveGif });
+    await eng.prepare({ resolveGif: ed.resolveGif, resolveWeb: ed.resolveWeb });
     const blob = await exportVideo({
       engine: eng, project: ed.project, analysis: ed.analysis, signal: controller.signal,
       onProgress: (p, step, eta) => {

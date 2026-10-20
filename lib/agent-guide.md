@@ -33,11 +33,18 @@ source video, and you have no shell access, only file tools.
 3. Keep `edit.json` valid JSON (double quotes, no comments, no trailing commas).
 4. Only reference assets that exist (listed in `context.md`), `emoji` layers, or `gif` layers with a
    `query`. Never invent file paths.
-5. Follow the active style's `vibe` unless the user asks for something else.
+5. **The active style's brief (`vibe` in `style.json`, repeated in every message) is the user's
+   rulebook.** Follow every concrete line in it literally, for every edit, unless the user's message
+   says otherwise. "Only real images" means every graphic is a real logo, photo or screenshot (see
+   "Real images") and nothing else: no emoji, stickers, GIFs, clip-art shapes or made-up icons.
+   "No music" means none. Before you reply, go through the brief line by line and fix anything your
+   edit breaks.
 6. **Nothing is fixed.** Every colour, size, shape, position, timing and font can change, and anything
    the built-in options can't do, you can build as a custom effect. Never tell the user something
    isn't possible because there's no preset for it.
 7. Finish with one or two plain sentences saying what you changed.
+8. **Cuts are clean hard cuts.** Never add flashes, dips to black, glitches, whip pans or any other
+   transition on cuts unless the user or the style brief asks for one.
 
 ## Talking with the user
 
@@ -93,6 +100,11 @@ Every key is optional. Missing keys use the defaults shown.
 `aspect`: `"9:16"` (default, 1080×1920), `"4:5"`, `"1:1"`, `"16:9"`. `fps`: 24, 25, 30 or 60.
 
 ### trim and cuts
+When a video comes in, the app has already cleaned it up: `cuts.silence` is on (pauses and dead air
+are gone) and repeated takes are cut as `cuts.ranges` entries with `"auto": true` (it keeps the last
+full take each time). Check those against the transcript: delete an auto range that cut something
+the user meant to say, and cut retakes it missed (a reworded restart, a line abandoned halfway).
+
 - `trim.start` / `trim.end`: drop everything before/after (source seconds, `end: null` = to the end).
 - `cuts.silence.enabled`: automatically removes pauses longer than `minGap` seconds, keeping `padding` seconds of air on each side. The usual setting for talking-head reels.
 - `cuts.ranges`: remove exact stretches: false starts, retakes, flubs, rambling. **Cut on word boundaries**: start at the first unwanted word's start time and end at the next kept word's start time (from `transcript.txt`). When the speaker repeats a line, keep the last clean take.
@@ -107,7 +119,7 @@ Every key is optional. Missing keys use the defaults shown.
 ### background
 Shown behind a `fit` video, and behind the person when `remove: true`.
 - `remove: true` cuts the person out with AI segmentation (no green screen needed) and puts this background behind them.
-- `type`: `"blur"` (blurred, dimmed copy of the video), `"color"`, `"gradient"` (`colors`, `angle` in degrees), `"image"` / `"video"` (`src` = asset path; videos loop).
+- `type`: `"blur"` (blurred, dimmed copy of the video), `"color"`, `"gradient"` (`colors`, `angle` in degrees), `"image"` / `"video"` (`src` = asset path; videos loop). An image background can use `web` instead of `src`.
 - `blur` in px, `dim` 0…1 darkens the background.
 
 ### grade (color)
@@ -157,7 +169,7 @@ Layer types:
 | `text` | `text` (use `*asterisks*` to color words with `accent`, `\n` for a new line), `font`, `weight`, `size` (default 80), `color`, `accent`, `stroke`, `strokeColor`, `shadow`, `shadowColor`, `background` `{color, radius, padding}`, `uppercase`, `letterSpacing`, `lineHeight`, `align`, `maxWidth` (0–1, default 0.84) |
 | `emoji` | `emoji` (e.g. `"🔥"`; renders as a crisp animated sticker), `width` (default 220) |
 | `gif` | `query` (e.g. `"mind blown"`; the app finds and downloads a GIF if a GIPHY key is set) or `src`, plus `fallbackEmoji` (used when no GIF can be fetched), `width` (default 520), `radius` |
-| `image` | `src` (asset path), `width` (default 300), `radius`, `shadow` |
+| `image` | `src` (asset path) **or** `web` (a real image the app fetches, see "Real images"), `width` (default 300), `height` + `fit: "cover"` (fill an exact box), `crop` `[x, y, w, h]` (fractions of the picture: keep just the part that matters), `radius`, `shadow`, `blur` (px) |
 | `video` | `src`, `fullscreen` (true = covers the frame, classic b-roll), `fit` (`"cover"`/`"contain"`), `width`, `height`, `radius`, `from` (start offset inside the clip, s), `speed`, `loop`, `volume` (0 = muted, default) |
 | `shape` | `shape` (`"rect"`, `"circle"`, `"line"`, `"arrow"`), `width`, `height`, `color` (fill), `stroke`, `strokeColor`, `radius`; line/arrow go from x,y to `x2`,`y2`. `"in": "draw"` draws the outline/line on. |
 | `progress` | progress bar across the whole video: `y` (0 = top, 1 = bottom), `height` (default 10), `color`, `background` |
@@ -288,6 +300,40 @@ new style that feels like a Netflix documentary"), update both `edit.json` (so t
 and `style.json` (`vibe` + `look`), then tell them to press **Save style** to keep it. For a brand-new
 style, also change `name` and `description`.
 
+## Real images (logos, photos, websites)
+
+You can't browse the web, but the app fetches real pictures for you. Ask for one with `web` on an
+image layer (or a background, or `"images": ["web:..."]` on a custom effect):
+
+| `web` | What you get |
+|---|---|
+| `"logo:OpenAI"` | The official logo from the name's Wikipedia article (PNG, usually transparent). |
+| `"photo:Sam Altman"` | The main picture of a Wikipedia article: a person, place, building, product. |
+| `"og:elevenlabs.io"` | The share image the website itself publishes (designed by the brand, usually 1200×630). |
+| `"site:cbc.ca/news"` | A real screenshot of the website, desktop size (1440×900 at 1.5×). |
+| `"phone:chatgpt.com"` | The same at phone size (tall, perfect behind a speaker in 9:16). |
+
+When your turn ends the app downloads them into `assets/web/`, then shows you what it got so you can
+look at each one and adjust. Images fetched earlier are listed in `context.md`; reuse them with `src`.
+
+Use them like an editor would by hand, never as a flat sticker in the middle of the frame:
+- **Behind the speaker:** a big `phone:` or `site:` screenshot with `behindSubject: true`, filling
+  most of the frame, maybe `opacity` 0.9 and a slow scale-up, so the person stands in front of the
+  product they're talking about.
+- **Crop to the point:** `crop` to the headline of a news page, the pricing table, the one button that
+  matters. Then size it up.
+- **Logo moments:** the logo on a clean card (a white or brand-colour rounded rect behind it), popping
+  in on the exact word; logos for a comparison side by side.
+- **Motion:** anything beyond the built-in in/out animations is a custom effect with `fx.images`:
+  motion-blur entrances (draw the image 6–10 times along its path with falling alpha), swirl and spin
+  (rotate + scale on an ease), parallax drift, Ken Burns pushes, 3D-ish tilts (`ctx.transform`), masks
+  that reveal the image in a shape, a screenshot sliding up inside a phone frame
+  (`builtin/phone-mockup.js` and `builtin/browser-window.js` take `images`).
+- Name the thing exactly as it's known ("logo:CBC News", not "logo:CBC"). If a fetch fails or looks
+  wrong, try another source (logo → og → site) before dropping it.
+- Logos and screenshots belong to their owners. Use them the way commentary and news do: to show what
+  is being talked about.
+
 ## Reference reels
 
 When the user shares a reel they like, the app downloads it into `references/<id>/` and the message
@@ -352,7 +398,7 @@ change to "all versions" or to a specific other one, edit those `variants/*.json
 
 ## Recipes
 
-- **Full first edit** (when asked to "edit this", "auto edit" or "do your thing"): read `context.md`, `transcript.txt`, `style.json` and 1–2 frames → fix transcription mistakes with `replacements` → cut clear retakes and false starts (keep the last clean take) → hook title if the style uses one → emphasis on key words → zooms on strong moments → 1–3 effects from `builtin/CATALOG.md` where a specific line earns them, as the vibe allows → check that nothing covers the face and everything sits inside safe zones → run the "Don't make it look AI-edited" list against your own edit and remove anything that fails it.
+- **Full first edit** (when asked to "edit this", "auto edit" or "do your thing"): read `context.md`, `transcript.txt`, `style.json` and 1–2 frames → write down the style brief's rules for yourself → fix transcription mistakes with `replacements` → check the automatic retake cuts and cut any it missed (keep the last clean take) → real images for the brands, products, people and places the speaker names, if the brief asks for them → hook title if the style uses one → emphasis on key words → zooms on strong moments → 1–3 effects from `builtin/CATALOG.md` where a specific line earns them, as the vibe allows → check that nothing covers the face and everything sits inside safe zones → run the "Don't make it look AI-edited" list against your own edit and remove anything that fails it.
 - **"Make it shorter / under 30s"**: turn on `cuts.silence`, then cut the weakest sentences with `cuts.ranges` (keep the hook and the payoff). `context.md` shows the current output length.
 - **"Green screen me / put me in front of X"**: `background.remove: true` with `type` image/video/gradient.
 - **"Text behind me"**: text layer with `behindSubject: true`, big (size 200–320), heavy font, y≈0.3.

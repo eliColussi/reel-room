@@ -5,6 +5,7 @@ import { Engine } from './render/engine.js';
 import { Assets } from './render/media.js';
 import { applyLook, clone } from './spec.js';
 import { analyze, openInput } from './analyze.js';
+import { autoClean } from './cleanup.js';
 import { findSilences } from './render/timeline.js';
 import { loadMediabunny } from './cdn.js';
 import { Timeline } from './ui/timeline.js';
@@ -56,12 +57,20 @@ class Editor {
       if (!this.gifCache.has(q)) this.gifCache.set(q, api.get(`/api/projects/${id}/gif?q=${encodeURIComponent(q)}`).then((r) => r.src).catch(() => null));
       return this.gifCache.get(q);
     };
+    this.webCache = new Map();
+    this.resolveWeb = (q) => {
+      if (!this.webCache.has(q)) this.webCache.set(q, api.get(`/api/projects/${id}/web-image?q=${encodeURIComponent(q)}`).then((r) => r.src).catch(() => null));
+      return this.webCache.get(q);
+    };
     this.reportSoon = debounce(() => this.writeReport(), 1500);
   }
 
   // ---------- layout ----------
   build() {
-    this.video = h('video', { playsinline: true, preload: 'auto', style: { position: 'fixed', left: '-9999px', width: '2px', height: '2px', opacity: 0 } });
+    // Two players take turns: while one plays a kept part, the other already waits at the start of
+    // the next one. Cuts then play back instantly, with no seek stall and no black frame.
+    this.players = [0, 1].map(() => h('video', { playsinline: true, preload: 'auto', style: { position: 'fixed', left: '-9999px', width: '2px', height: '2px', opacity: 0 } }));
+    this.cur = 0;
     this.canvas = h('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.overlay = h('canvas', { class: 'overlay' });
@@ -75,6 +84,7 @@ class Editor {
     const safeBtn = h('button', { class: 'btn small ghost', onclick: () => { this.safeZones = !this.safeZones; safeBtn.classList.toggle('on', this.safeZones); safeBtn.textContent = this.safeZones ? '▣ Safe zones on' : '▢ Safe zones'; this.dirty = true; } }, '▢ Safe zones');
     this.versionsEl = h('div', { class: 'versions' });
     this.stage = h('div', { class: 'stage' },
+      h('div', { class: 'busy-badge' }, h('span', { class: 'spin-logo small' }, '▶'), 'AI is editing…'),
       this.versionsEl,
       this.stageInner,
       h('div', { class: 'stage-controls' }, this.playBtn, this.timeEl, h('div', { class: 'spacer' }),
@@ -100,7 +110,7 @@ class Editor {
         title, h('div', { class: 'spacer' }), this.pillSlot, this.undoBtn, this.redoBtn,
         h('button', { class: 'btn primary', onclick: () => this.engine.timeline && openExport(this) }, 'Export')),
       h('div', { class: 'workspace' }, this.stage, this.side),
-      this.timeline.el, this.video);
+      this.timeline.el, this.players);
     this.root.append(this.el);
     this.refreshPill();
     this.updateUndo();
@@ -125,6 +135,7 @@ class Editor {
   }
 
   setAiBusy(b) {
+    this.stage.classList.toggle('ai-busy', b);
     const dot = this.pillSlot.querySelector('.dot');
     if (dot) dot.className = `dot ${b ? 'busy' : this.state.info?.provider ? 'ok' : 'bad'}`;
     this.undoBtn.disabled = b || !this.canUndo;
@@ -164,10 +175,13 @@ class Editor {
       const ok = await this.runAnalysis();
       if (!ok) return;
     }
-    this.video.src = url;
-    this.video.addEventListener('seeked', () => { this.dirty = true; });
-    this.video.addEventListener('loadeddata', () => { this.dirty = true; });
-    this.video.addEventListener('error', () => { if (!this.destroyed) this.showDecodeProblem(); });
+    this.players.forEach((v, i) => {
+      v.src = url;
+      v.muted = i !== this.cur;
+      v.addEventListener('seeked', () => { this.dirty = true; });
+      v.addEventListener('loadeddata', () => { this.dirty = true; });
+      v.addEventListener('error', () => { if (!this.destroyed && v === this.video) this.showDecodeProblem(); });
+    });
 
     if (!this.spec) await this.startFresh();
     await this.rebuild();
@@ -177,6 +191,7 @@ class Editor {
     this.loop = this.loop.bind(this);
     this.raf = requestAnimationFrame(this.loop);
     this.showTab('ai');
+    this.reportCleanup();
     if (this.freshStart) toast('Tip: pick a starting look in Style, or just tell the AI what you want.', 'info', 6000);
     if (this.aiBusyAtOpen) this.chatPanel.waitForRunning();
     setTimeout(() => this.uploadPreview().catch(() => {}), 1500);
@@ -187,8 +202,7 @@ class Editor {
     cancelAnimationFrame(this.raf);
     this.ro?.disconnect();
     this.timeline?.destroy();
-    this.video?.pause();
-    this.video?.removeAttribute('src');
+    for (const v of this.players || []) { v.pause(); v.removeAttribute('src'); }
     for (const el of this.clips.values()) { el.pause(); el.removeAttribute('src'); }
     this.music?.pause();
     document.removeEventListener('keydown', this.onKey);
@@ -201,9 +215,37 @@ class Editor {
     this.style = clone(s);
     this.spec = applyLook({}, s.look || {});
     await api.put(`/api/projects/${this.id}/files/style.json`, this.style);
-    await api.put(`/api/projects/${this.id}/files/edit.json?reason=start`, this.spec);
     await api.patch(`/api/projects/${this.id}`, { styleId: s.id, styleName: s.name });
     this.freshStart = true;
+    if ((this.state.info?.settings || {}).autoClean === 'off') {
+      await api.put(`/api/projects/${this.id}/files/edit.json?reason=start`, this.spec);
+      return;
+    }
+    // Save the untouched version first, so one Undo brings back every cut the clean-up made.
+    const raw = clone(this.spec);
+    raw.cuts = { ...(raw.cuts || {}), silence: { ...(raw.cuts?.silence || {}), enabled: false } };
+    await api.put(`/api/projects/${this.id}/files/edit.json?reason=start`, raw);
+    const cleaned = autoClean(this.spec, this.transcript?.words || []);
+    this.spec = cleaned.spec;
+    this.cleaned = cleaned;
+    await api.put(`/api/projects/${this.id}/files/edit.json?reason=${encodeURIComponent('auto clean-up')}`, this.spec);
+    this.canUndo = true;
+  }
+
+  // Tell the user what the automatic clean-up did, once, in the chat.
+  async reportCleanup() {
+    const c = this.cleaned;
+    this.cleaned = null;
+    if (!c) return;
+    const tl = this.engine.timeline;
+    const parts = [];
+    if (c.retakes) parts.push(`${c.retakes} repeated take${c.retakes === 1 ? '' : 's'} (kept the last full one each time)`);
+    parts.push('the pauses and dead air');
+    const text = `✂️ Already cleaned up: cut ${parts.join(' and ')}. ${fmtTime(tl.duration).replace(/\.\d$/, '')} → ${fmtTime(tl.outDuration).replace(/\.\d$/, '')}. Press Undo to put it all back.`;
+    await api.post(`/api/projects/${this.id}/chat/note`, { text, kind: 'clean' }).catch(() => {});
+    this.chat = [...(this.chat || []), { role: 'system', text, kind: 'clean' }];
+    this.chatPanel.render(this.chat);
+    this.updateUndo();
   }
 
   async runAnalysis() {
@@ -285,7 +327,7 @@ class Editor {
     if (this.video?.src && !this.playing && eng.timeline.isCut(this.currentSrc())) this.seekSrc(this.currentSrc());
     this.dirty = true;
     const token = ++this.prepToken;
-    await eng.prepare({ resolveGif: this.resolveGif });
+    await eng.prepare({ resolveGif: this.resolveGif, resolveWeb: this.resolveWeb });
     if (token !== this.prepToken) return;
     this.dirty = true;
     this.timeline.draw();
@@ -428,6 +470,7 @@ class Editor {
     this.transcript = data.transcript || this.transcript;
     this.files = data.files || [];
     this.assets.bust();
+    this.webCache.clear();
     await this.rebuild();
     if (this.tab !== 'ai') this.panels[this.tab].show?.();
     const problems = this.checkRender();
@@ -495,9 +538,14 @@ class Editor {
   }
 
   // ---------- playback ----------
+  get video() { return this.players?.[this.cur]; }
+
+  // The frame to draw. Null while the player is still fetching it (right after a seek): the
+  // canvas then keeps showing the previous frame instead of flashing black.
   mainSource() {
     const v = this.video;
-    return v && v.readyState >= 2 && v.videoWidth ? { main: v, mainW: v.videoWidth, mainH: v.videoHeight } : {};
+    if (!v || v.readyState < 2 || !v.videoWidth || (v.seeking && this.lastDrawn)) return null;
+    return { main: v, mainW: v.videoWidth, mainH: v.videoHeight };
   }
   currentSrc() { return this.video?.currentTime || 0; }
 
@@ -506,16 +554,46 @@ class Editor {
     if (tl) t = tl.nextKept(Math.max(0, Math.min(tl.duration - 0.01, t)));
     this.video.currentTime = t;
     this.dirty = true;
+    if (this.playing) this.primeNext();
   }
   seekOut(o) { this.seekSrc(this.engine.timeline.toSrc(o)); }
+
+  // Park the idle player at the start of the next kept part.
+  primeNext() {
+    const tl = this.engine.timeline;
+    const idle = this.players[1 - this.cur];
+    if (!tl || !idle) return;
+    const seg = tl.segmentAt(this.currentSrc() + 0.02);
+    const next = seg ? tl.segments[seg.i + 1] : tl.segments.find((x) => x.s > this.currentSrc());
+    this.nextStart = next ? next.s : null;
+    if (next && Math.abs(idle.currentTime - next.s) > 0.02) idle.currentTime = next.s;
+  }
+
+  // At a cut: hand over to the idle player if it's ready, otherwise fall back to seeking.
+  jumpTo(t) {
+    const idle = this.players[1 - this.cur];
+    if (this.nextStart != null && Math.abs(this.nextStart - t) < 0.03 && Math.abs(idle.currentTime - t) < 0.05 && idle.readyState >= 2 && !idle.seeking) {
+      const old = this.video;
+      idle.muted = false;
+      idle.play().catch(() => {});
+      this.cur = 1 - this.cur;
+      old.pause();
+      old.muted = true;
+      this.primeNext();
+    } else {
+      this.video.currentTime = t;
+      this.primeNext();
+    }
+  }
 
   play() {
     const tl = this.engine.timeline;
     if (tl && tl.toOut(this.currentSrc()) >= tl.outDuration - 0.05) this.seekSrc(tl.segments[0].s);
-    this.video.play().then(() => { this.playing = true; this.playBtn.textContent = '❚❚'; }).catch((e) => toast(`Can't play: ${e.message}`, 'error'));
+    this.video.muted = false;
+    this.video.play().then(() => { this.playing = true; this.playBtn.textContent = '❚❚'; this.primeNext(); }).catch((e) => toast(`Can't play: ${e.message}`, 'error'));
   }
   pause() {
-    this.video.pause();
+    for (const v of this.players || []) v.pause();
     this.playing = false;
     this.playBtn.textContent = '▶';
     for (const el of this.clips.values()) el.pause();
@@ -595,16 +673,18 @@ class Editor {
       if (v.ended || tl.toOut(t) >= tl.outDuration - 0.02) { this.pause(); }
       else if (tl.isCut(t + 0.03) && !v.seeking) {
         const nt = tl.nextKept(t + 0.03);
-        if (nt >= tl.duration - 0.03) this.pause(); else v.currentTime = nt;
+        if (nt >= tl.duration - 0.03) this.pause(); else this.jumpTo(nt);
       }
       this.dirty = true;
     }
     this.syncClips();
     this.syncMusic();
-    if (this.dirty) {
+    const main = this.mainSource();
+    if (this.dirty && (main || !this.lastDrawn)) {
       this.dirty = false;
+      this.lastDrawn = !!main;
       const t = this.currentSrc();
-      this.engine.draw(this.ctx, t, { ...this.mainSource(), videos: this.clipFrames });
+      this.engine.draw(this.ctx, t, { ...main, videos: this.clipFrames });
       this.drawOverlay();
       const now = performance.now();
       if (!this.playing || now - (this.lastTl || 0) > 80) { this.timeline.draw(); this.lastTl = now; }

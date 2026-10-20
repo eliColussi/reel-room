@@ -2,7 +2,7 @@
 // Click to seek. Click a pause to cut it. Drag across the waveform to select a part, then cut it.
 // Drag a bar to move it, drag its edge to trim it.
 import { h, fmtTime } from '../lib.js';
-import { findSilences } from '../render/timeline.js';
+import { findSilences, wordGaps } from '../render/timeline.js';
 
 const COLORS = { text: '#c8ff3d', emoji: '#ffd60a', gif: '#ff7ab6', image: '#5ce1e6', video: '#a78bfa', shape: '#fb923c', progress: '#94a3b8', custom: '#60a5fa', zoom: '#f472b6' };
 const PAD = 12;
@@ -45,10 +45,18 @@ export class Timeline {
     const eng = this.ed.engine, audio = this.ed.analysis?.audio;
     const sil = eng.spec.cuts.silence || {};
     const minGap = +sil.minGap || 0.45, pad = Math.max(0, +sil.padding || 0.12);
-    const key = `${minGap}|${pad}|${audio?.db?.length}`;
+    const words = this.ed.transcript?.words || [];
+    const key = `${minGap}|${pad}|${sil.words !== false}|${audio?.db?.length}|${words.length}`;
     if (this.pauseKey !== key) {
       const D = eng.timeline.duration;
-      this.pauseCache = findSilences(audio, { minGap }).map(([a, b]) => [a <= 0.05 ? 0 : a + pad, b >= D - 0.05 ? D : b - pad]).filter(([a, b]) => b - a > 0.1);
+      const list = findSilences(audio, { minGap }).map(([a, b]) => [a <= 0.05 ? 0 : a + pad, b >= D - 0.05 ? D : b - pad]);
+      if (sil.words !== false) list.push(...wordGaps(words, audio, { minGap, duration: D }));
+      const merged = [];
+      for (const [a, b] of list.filter(([a, b]) => b - a > 0.1).sort((x, y) => x[0] - y[0])) {
+        const last = merged[merged.length - 1];
+        if (last && a <= last[1]) last[1] = Math.max(last[1], b); else merged.push([a, b]);
+      }
+      this.pauseCache = merged;
       this.pauseKey = key;
     }
     return this.pauseCache;

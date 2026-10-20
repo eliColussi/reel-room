@@ -3,7 +3,7 @@
 export const DEFAULTS = {
   format: { aspect: '9:16', fps: 30 },
   trim: { start: 0, end: null },
-  cuts: { silence: { enabled: false, minGap: 0.45, padding: 0.12 }, ranges: [], words: [], punchZoom: 1 },
+  cuts: { silence: { enabled: true, minGap: 0.4, padding: 0.1, words: true }, ranges: [], words: [], punchZoom: 1 },
   frame: { fit: 'fill', track: 'face', scale: 1, offsetX: 0, offsetY: 0 },
   background: { remove: false, type: 'blur', color: '#111111', colors: ['#1d1d1f', '#3a3a3c'], angle: 160, src: null, blur: 40, dim: 0.35 },
   grade: { brightness: 1, contrast: 1, saturation: 1, warmth: 0, vignette: 0, grain: 0, blackAndWhite: false },

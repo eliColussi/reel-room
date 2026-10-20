@@ -88,7 +88,7 @@ function stylesSection(styles, refresh) {
       const s = JSON.parse(await f.text());
       if (!s.name || !s.look) throw new Error('That file isn\'t a Reel Room style.');
       const hasCode = s.effects && Object.keys(s.effects).length;
-      if (hasCode && !(await confirmBox('This style contains code', 'It includes custom effects (JavaScript) that run when you preview and export. Only import styles from people you trust.', 'Import anyway'))) return;
+      if (hasCode && !(await confirmBox('This style contains code', `It includes ${Object.keys(s.effects).length} custom effect${Object.keys(s.effects).length === 1 ? '' : 's'} (JavaScript: ${Object.keys(s.effects).join(', ')}) that run inside Reel Room while you preview and export. Reel Room stops that code from sending anything to the internet, but it can still see and change the video you use it on. Only import styles from people you trust.`, 'Import anyway'))) return;
       const id = `${(s.name || 'style').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Math.random().toString(36).slice(2, 6)}`;
       await api.put(`/api/styles/${id}`, s);
       toast(`Imported "${s.name}".`, 'ok');

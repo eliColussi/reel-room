@@ -10,12 +10,16 @@ The chat is the main way to edit. The AI reads your transcript, looks at your fr
 
 ## What it does
 
+- **Already cleaned up when it opens.** Pauses, dead air and repeated takes are cut the moment a video comes in. Read your script three times? It keeps the last full take of each line and stitches the rest together. One Undo puts everything back.
+- **Real images, not clip art.** Name a company, product, person or news outlet and the AI can pull in the real thing: the official logo, a photo, the site's own share image, or a fresh screenshot of the website (desktop or phone size). Then it crops, places and animates them like an editor would: behind your head, sliding up with motion blur, on a card that pops in on the word.
+- **A style guide it actually follows.** Write your rules in the Style tab ("only real images", "no emoji", "white captions, sentence case"). They go with every request as rules, not suggestions.
 - **Talk to it.** Press the mic and say what you want. Your voice is written down by the same speech model that makes your captions, on your computer.
 - **Copy a reel's feel.** Paste an Instagram, TikTok or YouTube link (or attach the video) and pick how close to go, from "a hint of it" to 90%. The AI studies its captions, pacing, zooms and graphics, writes up what it saw, and gives your video that feel. It never copies their words, logo or footage. Keep the result as a style with one click.
 - **Trial reels.** One clip in, 3 to 10 versions out, each opening differently (a different first line, hook or first shot) so every one is a real test. Each comes with what it tests and a post caption. Export them all in one go and post them as Instagram trial reels.
 - **Versions.** Try something else without losing what you have. Every version keeps its own undo history.
 - **Your own effects library.** Ask for an effect that doesn't exist ("a neon ring that pulses around my head"), and the AI writes it. Like it? Press "Save to my effects" and every future video can use it. The AI reaches for your saved effects first.
 - **Captions from your voice.** Whisper runs in your browser. Word-level timing, highlight on the spoken word, emphasis colours, any Google font.
+- **Clean cuts.** Cuts play back seamlessly in the preview (two players take turns, so there's no black flash) and the export is frame-accurate. No flashes or dips between clips unless you ask for them.
 - **Cuts.** Pauses show up on the timeline. Click one to cut it, or cut them all at once. Drag across the sound wave to select any part and press Delete. The AI cuts false starts and repeated takes (it keeps the last clean one), and you can strike words out in the transcript like a doc.
 - **Framing.** Landscape footage becomes vertical and the crop follows your face. Zooms, punch-ins and slow pushes land on the words that matter.
 - **No green screen needed.** Background removal, text behind you, half your body cut out and half not, colour pop, sticker outlines, clones.
@@ -92,7 +96,15 @@ The AI part runs through Claude Code or Codex, which send text to Anthropic or O
 
 When you paste a reel link, yt-dlp downloads that reel from the site to the video's folder so it can be studied there. Respect the creator: use references to learn an editing style, not to repost their work. The "Use my Chrome login" button lets yt-dlp read your Instagram login from Chrome on this computer; it isn't sent anywhere else.
 
+When the AI asks for a real image, Reel Room (not the AI) fetches it: from Wikipedia and Wikimedia Commons, from the website you named, or as a screenshot taken by your own Chrome in a throwaway profile with no cookies or logins. It only fetches public websites, never anything on your computer or home network.
+
 Reel Room never touches your Claude or ChatGPT login. It starts the official app you installed and talks to it. It also removes `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from that app's environment, so a stray API key can't quietly bill you instead of your plan.
+
+## Security
+
+- The app only listens on your own computer (`127.0.0.1`), and every API call needs a key that changes each time it starts.
+- The AI runs with file tools only (no terminal, no web) inside the video's folder. Claude Code blocks it from reading anything outside that folder.
+- Styles can include effect code, which runs inside the Reel Room page. A content security policy stops page code from contacting any server except the pinned code, model and font CDNs, so a shared style can't send your videos anywhere. Still, only import styles from people you trust.
 
 ## Troubleshooting
 
@@ -113,6 +125,8 @@ No build step and no dependencies. Plain Node on the server, plain ES modules in
 | `server.js` | Local HTTP server: projects, files with range requests, styles, library, undo history, the AI chat stream. Binds to 127.0.0.1 and needs a per-launch token on every API call. |
 | `lib/ai.js` | Finds `claude` / `codex`, runs one chat turn headlessly in the project folder (`claude -p --output-format stream-json` or `codex exec --json`), streams progress back. |
 | `lib/agent-guide.md` | The instructions the AI reads in every project (written there as `CLAUDE.md` and `AGENTS.md`): the full `edit.json` reference, editing taste, the anti-slop list, and the effect API. Most of the edit quality comes from this file. |
+| `lib/web-images.js` | Fetches real logos, photos, share images and website screenshots for the AI, with public-site checks. |
+| `public/js/cleanup.js` | Automatic clean-up on import: finds repeated takes from the transcript. |
 | `lib/context.js` | Writes `context.md`, `transcript.txt` and the effect catalogs (built-in and saved) the AI reads before each turn. |
 | `public/js/ui/chat.js` | The chat: dictation, attachments, reference links, trial reels, "save this effect" buttons. |
 | `public/js/reference.js` | Studies a reference reel: contact sheets with timestamps, cut detection, pacing, transcript. |

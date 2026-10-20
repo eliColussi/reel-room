@@ -84,7 +84,7 @@ export class Engine {
   }
 
   // Load fonts, images, stickers, effects and models this edit needs. Safe to call repeatedly.
-  async prepare({ resolveGif } = {}) {
+  async prepare({ resolveGif, resolveWeb } = {}) {
     const { spec, assets, u } = this;
     const jobs = [];
     const fonts = new Set();
@@ -106,7 +106,13 @@ export class Engine {
           this.warnings.push(`${label} couldn't be loaded.`);
         });
       };
-      if (l.type === 'image') jobs.push(load(assets.url(l.src), `Image "${l.src}"`));
+      if (l.type === 'image') {
+        jobs.push((async () => {
+          const src = l.src || (l.web && resolveWeb ? await resolveWeb(l.web).catch(() => null) : null);
+          if (src) return load(assets.url(src), `Image "${l.src || l.web}"`);
+          this.warnings.push(`Image ${l.web ? `"${l.web}" couldn't be found on the web` : 'layer has no src'}.`);
+        })());
+      }
       if (l.type === 'emoji' && l.emoji) jobs.push(load(assets.emojiUrl(l.emoji), `Emoji ${l.emoji}`).catch(() => {}));
       if (l.type === 'gif') {
         jobs.push((async () => {
@@ -122,7 +128,8 @@ export class Engine {
           this.modules.set(l._key, m);
         }).catch((e) => { this.modules.delete(l._key); this.errors.set(l._key, `Effect ${l.file}: ${e.message}`); }));
         if (Array.isArray(l.images)) {
-          jobs.push(Promise.all(l.images.map((s) => assets.image(assets.url(s), 1080).catch(() => null))).then((imgs) => this.customImages.set(l._key, imgs.map((i) => i && frameAt(i, 0)))));
+          const src = async (s) => (String(s).startsWith('web:') ? (resolveWeb ? await resolveWeb(String(s).slice(4)).catch(() => null) : null) : s);
+          jobs.push(Promise.all(l.images.map(async (s) => { const u = await src(s); return u ? assets.image(assets.url(u), 1600).catch(() => null) : null; })).then((imgs) => this.customImages.set(l._key, imgs.map((i) => i && frameAt(i, 0)))));
         }
       }
     }
@@ -130,7 +137,13 @@ export class Engine {
 
     const bg = spec.background;
     this.bgImage = null;
-    if (bg.type === 'image' && bg.src) jobs.push(assets.image(assets.url(bg.src), 1920).then((i) => { this.bgImage = i; }).catch(() => this.warnings.push(`Background image "${bg.src}" couldn't be loaded.`)));
+    if (bg.type === 'image' && (bg.src || bg.web)) {
+      jobs.push((async () => {
+        const src = bg.src || (resolveWeb ? await resolveWeb(bg.web).catch(() => null) : null);
+        if (!src) throw new Error('not found');
+        this.bgImage = await assets.image(assets.url(src), 1920);
+      })().catch(() => this.warnings.push(`Background image "${bg.src || bg.web}" couldn't be loaded.`)));
+    }
     await Promise.allSettled(jobs);
     // Effects declare what they need in `export const meta = { fonts, needs: ['person'] }`.
     const late = [];
@@ -412,16 +425,25 @@ export class Engine {
 
   drawBitmap(ctx, l, img, lt) {
     const u = this.u;
+    // crop: [x, y, w, h] as fractions of the picture, to keep just the part that matters.
+    const c = Array.isArray(l.crop) && l.crop.length === 4 ? l.crop.map((v) => clamp(+v || 0)) : null;
+    const sx = c ? c[0] * img.width : 0, sy = c ? c[1] * img.height : 0;
+    const sw = c ? Math.max(1, c[2] * img.width) : img.width, sh = c ? Math.max(1, c[3] * img.height) : img.height;
     const w = (+l.width || 300) * u;
-    const h = l.height ? +l.height * u : (w * img.height) / img.width;
+    const h = l.height ? +l.height * u : (w * sh) / sw;
     const bmp = frameAt(img, lt);
+    if (+l.blur) ctx.filter = `blur(${+l.blur * u}px)`;
     if (+l.shadow) { ctx.shadowColor = l.shadowColor || 'rgba(0,0,0,0.45)'; ctx.shadowBlur = +l.shadow * u; ctx.shadowOffsetY = +l.shadow * u * 0.3; }
     if (+l.radius) {
       if (+l.shadow) { ctx.fillStyle = 'rgba(0,0,0,1)'; roundRect(ctx, -w / 2, -h / 2, w, h, +l.radius * u); ctx.fill(); ctx.shadowColor = 'transparent'; }
       roundRect(ctx, -w / 2, -h / 2, w, h, +l.radius * u);
       ctx.clip();
     }
-    ctx.drawImage(bmp, -w / 2, -h / 2, w, h);
+    if (l.fit === 'cover' && l.height) {
+      const k = Math.max(w / sw, h / sh), cw = w / k, ch = h / k;
+      ctx.drawImage(bmp, sx + (sw - cw) / 2, sy + (sh - ch) / 2, cw, ch, -w / 2, -h / 2, w, h);
+    } else ctx.drawImage(bmp, sx, sy, sw, sh, -w / 2, -h / 2, w, h);
+    ctx.filter = 'none';
     return { w, h };
   }
 

@@ -8,7 +8,7 @@
     "frame": { "fit": "fill", "track": "face", "scale": 1 },
     "grade": { "brightness": 1.03, "contrast": 1.12, "saturation": 1.2, "warmth": 0.05, "vignette": 0, "grain": 0 },
     "captions": { "enabled": true, "mode": "word", "maxWords": 1, "maxChars": 14, "lines": 1, "font": "Luckiest Guy", "weight": 400, "size": 110, "uppercase": true, "letterSpacing": 1, "lineHeight": 1, "color": "#FFFFFF", "highlight": "#FFFFFF", "highlightStyle": "none", "stroke": 10, "strokeColor": "#000000", "shadow": 0, "background": null, "y": 0.68, "maxWidth": 0.9, "animation": "bounce", "punctuation": false },
-    "cuts": { "silence": { "enabled": true, "minGap": 0.3, "padding": 0.06 }, "punchZoom": 1.14 },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.25, "padding": 0.05, "words": true }, "punchZoom": 1.14 },
     "audio": { "enhance": true, "music": null },
     "layers": []
   }

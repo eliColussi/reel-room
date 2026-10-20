@@ -261,7 +261,7 @@ export class ChatPanel {
       }
       return box;
     }
-    const el = h('div', { class: `msg ${m.role}` }, m.text);
+    const el = h('div', { class: `msg ${m.role}${m.kind === 'clean' ? ' note' : ''}` }, m.text);
     if (m.ref) {
       const sheet = `/files/projects/${this.ed.id}/references/${m.ref}/sheet-1.jpg`;
       el.append(h('a', { class: 'ref-thumb', href: sheet, target: '_blank', title: 'What the AI looked at' }, h('img', { src: sheet, alt: '', onerror: (e) => e.target.parentElement.remove() })));
@@ -278,14 +278,15 @@ export class ChatPanel {
 
   render(messages) {
     this.messagesEl.innerHTML = '';
-    if (!messages.filter((m) => m.role !== 'system').length) {
+    const empty = !messages.filter((m) => m.role !== 'system').length;
+    messages.forEach((m, i) => this.messagesEl.append(this.renderMessage(m, messages[i - 1])));
+    if (empty) {
       this.messagesEl.append(h('div', { class: 'empty-chat' },
         h('h3', {}, 'What should we do with this video?'),
         h('p', { class: 'muted' }, 'Type or press the mic and say it. Your AI reads the transcript, looks at your frames and edits the timeline. Undo is always one click.'),
         h('div', { class: 'starters' }, STARTERS.map((s) => h('button', { class: 'starter', onclick: () => this.starter(s) }, h('span', { class: 'ic' }, s.icon), s.label))),
         h('p', { class: 'hint' }, 'This conversation is saved in the video\'s folder on your computer.')));
     }
-    messages.forEach((m, i) => this.messagesEl.append(this.renderMessage(m, messages[i - 1])));
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
     this.onInput();
   }
@@ -392,9 +393,7 @@ export class ChatPanel {
     this.onInput();
     const userEl = this.renderMessage({ role: auto ? 'system' : 'user', text: display || text });
     this.messagesEl.append(userEl);
-    const now = h('div', { class: 'now' }, 'Starting…');
-    const log = h('div');
-    const working = h('div', { class: 'working' }, now, log);
+    const { el: working, now, log, stop: stopTimer } = workingCard();
     this.messagesEl.append(working);
     this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
     this.setBusy(true);
@@ -405,8 +404,7 @@ export class ChatPanel {
       this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
     };
     let result = null;
-    const started = Date.now();
-    const timer = setInterval(() => { now.dataset.secs = Math.round((Date.now() - started) / 1000); }, 1000);
+    const timer = 0;
     try {
       if (prepare) {
         const p = await prepare(status);
@@ -424,7 +422,7 @@ export class ChatPanel {
       });
     } catch (e) {
       if (prepare && !result) {
-        clearInterval(timer);
+        stopTimer();
         working.remove();
         this.setBusy(false);
         this.messagesEl.append(this.referenceProblem(e));
@@ -434,6 +432,7 @@ export class ChatPanel {
       result = { ok: false, text: e.message };
     } finally {
       clearInterval(timer);
+      stopTimer();
       working.remove();
       this.setBusy(false);
     }
@@ -445,15 +444,32 @@ export class ChatPanel {
 
   // Called when the editor opens while an AI turn (started earlier) is still running.
   async waitForRunning() {
-    const working = h('div', { class: 'working' }, h('div', { class: 'now' }, 'The AI is still working on your last request…'));
+    const { el: working, now, stop } = workingCard();
+    now.textContent = 'Still working on your last request';
     this.messagesEl.append(working);
     this.setBusy(true);
     for (;;) {
       await new Promise((r) => setTimeout(r, 2000));
       const data = await api.get(`/api/projects/${this.ed.id}`).catch(() => null);
-      if (data && !data.aiBusy) { working.remove(); this.setBusy(false); this.render(data.chat); await this.ed.afterAI?.({ ok: true, changed: true, variants: data.variants }, { auto: true }); return; }
+      if (data && !data.aiBusy) { stop(); working.remove(); this.setBusy(false); this.render(data.chat); await this.ed.afterAI?.({ ok: true, changed: true, variants: data.variants }, { auto: true }); return; }
     }
   }
+}
+
+// The "it's working" card: spinning logo, a running clock, the current step and the finished ones.
+function workingCard() {
+  const now = h('div', { class: 'now' }, 'Starting…');
+  const log = h('div', { class: 'log' });
+  const clock = h('span', { class: 'elapsed' }, '0:00');
+  const el = h('div', { class: 'working' },
+    h('div', { class: 'working-head' }, h('span', { class: 'spin-logo' }, '▶'), h('b', {}, 'Editing your video'), h('div', { class: 'spacer' }), clock),
+    now, log);
+  const started = Date.now();
+  const t = setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    clock.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }, 1000);
+  return { el, now, log, stop: () => clearInterval(t) };
 }
 
 function chooseVideoUse(name) {

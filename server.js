@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { detectAgents, pickProvider, runTurn, testProvider, which } from './lib/ai.js';
 import { writeAgentContext, effectCatalog } from './lib/context.js';
+import { resolveWebImage, webQueries } from './lib/web-images.js';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(APP_DIR, 'public');
@@ -47,6 +48,21 @@ const MIME = {
   '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2',
 };
 const VIDEO_EXT = ['.mp4', '.mov', '.m4v', '.webm', '.mkv'];
+
+// What the page may load and talk to. Effect code from a shared style runs inside this page, so this
+// keeps it from sending anything off the computer: the only outside hosts are the pinned code, model
+// and font CDNs. Everything else (GIFs, emoji, web images) is fetched by this server.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval' blob:",
+  "worker-src 'self' blob:",
+  "connect-src 'self' https://cdn.jsdelivr.net https://storage.googleapis.com https://huggingface.co https://*.huggingface.co https://*.hf.co blob: data:",
+  "img-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "object-src 'none'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'",
+].join('; ');
 
 // ---------- helpers ----------
 const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
@@ -90,7 +106,7 @@ async function sendFile(req, res, file, { maxAge = 0 } = {}) {
   if (!st.isFile()) return fail(res, 404, 'Not found');
   const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
   const etag = `"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
-  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', ETag: etag, 'Cache-Control': maxAge ? `public, max-age=${maxAge}` : 'no-cache' };
+  const headers = { 'Content-Type': type, 'Accept-Ranges': 'bytes', ETag: etag, 'Cache-Control': maxAge ? `public, max-age=${maxAge}` : 'no-cache', 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff' };
   const range = req.headers.range;
   if (range) {
     const m = /bytes=(\d*)-(\d*)/.exec(range);
@@ -132,7 +148,7 @@ function openBrowser(url) {
 
 // ---------- settings ----------
 const SETTINGS_FILE = path.join(DATA, 'settings.json');
-const DEFAULT_SETTINGS = { provider: 'auto', model: '', giphyKey: '', whisper: 'base', language: 'english' };
+const DEFAULT_SETTINGS = { provider: 'auto', model: '', giphyKey: '', whisper: 'base', language: 'english', autoClean: 'on' };
 async function getSettings() { return { ...DEFAULT_SETTINGS, ...(await readJson(SETTINGS_FILE, {})) }; }
 
 // ---------- projects ----------
@@ -313,10 +329,12 @@ async function handleChat(req, res, id) {
   const variantsBefore = await variantStamps(dir);
   await writeAgentContext({ dir, appDir: APP_DIR, libraryDir: DIRS.library, effectsDir: DIRS.effects, settings, provider, variants: await listVariants(dir) });
 
+  const style = await readJson(path.join(dir, 'style.json'), {});
+  const brief = String(style?.vibe || '').trim();
   const prompt = `${message}
 
 ---
-(Reel Room) You are editing the short video project in this folder. Follow ${provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'}. context.md, transcript.txt and preview.jpg are refreshed every turn, so re-read them when you need current facts. Make changes by editing edit.json (plus effects/*.js, style.json, variants/ or references/ only when the request needs them) and keep every JSON file valid. When you finish editing, reply with one or two short plain sentences saying what you changed. If the user asked for ideas, options or an interview, or you need an answer first, reply with a short numbered list instead and don't edit yet. No headings.`;
+${brief ? `(Reel Room) The user's style guide for this video. These are rules, not suggestions; follow every line exactly unless the message above says otherwise:\n<style-guide>\n${brief.slice(0, 4000)}\n</style-guide>\n\n` : ''}(Reel Room) You are editing the short video project in this folder. Follow ${provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'}. context.md, transcript.txt and preview.jpg are refreshed every turn, so re-read them when you need current facts. Make changes by editing edit.json (plus effects/*.js, style.json, variants/ or references/ only when the request needs them) and keep every JSON file valid. When you finish editing, reply with one or two short plain sentences saying what you changed. If the user asked for ideas, options or an interview, or you need an answer first, reply with a short numbered list instead and don't edit yet. No headings.`;
 
   const images = (await fsp.readdir(path.join(dir, 'frames')).catch(() => [])).filter((f) => f.endsWith('.jpg')).sort().slice(0, 3).map((f) => path.join(dir, 'frames', f));
   let sessionId = chat.sessions[provider] || null;
@@ -332,6 +350,22 @@ async function handleChat(req, res, id) {
   if (!result.ok && !result.cancelled && sessionId && /conversation|session|thread|rollout/i.test(result.raw || result.error || '')) {
     send({ type: 'status', text: 'Starting a fresh session' });
     result = await attempt(null, prompt);
+  }
+
+  // Real images the AI asked for ("web" on layers): fetch them, then let it look at them and adjust.
+  if (result.ok) {
+    for (let round = 0; round < 2; round++) {
+      const wanted = await webWanted(dir);
+      if (!wanted.length) break;
+      send({ type: 'status', text: `Finding real images: ${wanted.slice(0, 3).join(', ')}${wanted.length > 3 ? '…' : ''}` });
+      const got = await Promise.all(wanted.map((q) => resolveWebImage(dir, q).catch((e) => ({ query: q, error: e.message }))));
+      if (round === 1) break;
+      const lines = got.map((g) => g.error ? `- ${g.query}: couldn't get it (${g.error})` : `- ${g.query} → ${g.src} (${g.from})${g.warning ? ` WARNING: ${g.warning}` : ''}`).join('\n');
+      send({ type: 'status', text: 'Looking at the images and placing them' });
+      const look = await attempt(result.sessionId, `The app fetched the real images your edit asked for:\n${lines}\n\nRead each image file to see what you actually got. Then make them look designed, the way an editor would by hand: crop to the part that matters (crop), size and place them, put them behind the speaker or in a card, and give them motion that fits the style. Fix anything that looks off (a dark logo on dark footage needs a light card, a busy screenshot needs a crop). Replace any wrong or failed image with a better query, or drop it. Keep the "web" keys as they are. Reply with one short sentence about what you adjusted.`);
+      if (look.ok) { result.sessionId = look.sessionId; if (look.text && !/^done\.?$/i.test(look.text)) result.text = `${result.text}\n\n${look.text}`; }
+      else break;
+    }
   }
 
   // Never leave the project with broken JSON: ask the AI to repair once, else roll back.
@@ -377,6 +411,16 @@ async function handleChat(req, res, id) {
   const h = await historyState(dir);
   send({ type: 'done', ok: result.ok, text: result.ok ? result.text : result.error, changed, effects: reply.effects || [], variantsChanged, variants: await listVariants(dir), canUndo: h.current > 0, canRedo: h.current < h.versions.length - 1 });
   if (open) res.end();
+}
+
+// Web image queries in edit.json (and the versions) that haven't been fetched yet.
+async function webWanted(dir) {
+  const files = ['edit.json', ...(await fsp.readdir(path.join(dir, 'variants')).catch(() => [])).filter((f) => f.endsWith('.json') && f !== 'index.json').map((f) => `variants/${f}`)];
+  const qs = new Set();
+  for (const f of files) for (const q of webQueries(await readJson(path.join(dir, f)))) qs.add(q);
+  let index = {};
+  try { index = JSON.parse(await fsp.readFile(path.join(dir, 'assets', 'web', 'index.json'), 'utf8')); } catch {}
+  return [...qs].filter((q) => !index[q]).slice(0, 12);
 }
 
 async function effectStamps(dir) {
@@ -646,7 +690,7 @@ route('POST', /^\/api\/projects\/([\w-]+)\/chat\/note$/, async (req, res, m) => 
   const body = await readJsonBody(req);
   const file = chatFile(projectDir(m[1]));
   const chat = await readJson(file, { messages: [], sessions: {} });
-  chat.messages.push({ role: 'system', text: String(body.text || '').slice(0, 2000), at: Date.now() });
+  chat.messages.push({ role: 'system', text: String(body.text || '').slice(0, 2000), at: Date.now(), ...(body.kind ? { kind: String(body.kind).slice(0, 20) } : {}) });
   await writeJson(file, chat);
   json(res, 200, { ok: true });
 });
@@ -732,6 +776,13 @@ route('GET', /^\/api\/emoji-code$/, async (req, res) => {
   json(res, 200, { code: emojiCodepoints(new URL(req.url, 'http://x').searchParams.get('e') || '') });
 });
 
+route('GET', /^\/api\/projects\/([\w-]+)\/web-image$/, async (req, res, m) => {
+  const q = new URL(req.url, 'http://x').searchParams.get('q') || '';
+  if (!q.trim()) return fail(res, 400, 'Missing query');
+  const r = await resolveWebImage(projectDir(m[1]), q.trim());
+  r.error ? fail(res, 404, r.error) : json(res, 200, r);
+});
+
 route('GET', /^\/api\/projects\/([\w-]+)\/gif$/, async (req, res, m) => {
   const q = new URL(req.url, 'http://x').searchParams.get('q') || '';
   if (!q.trim()) return fail(res, 400, 'Missing query');
@@ -741,7 +792,7 @@ route('GET', /^\/api\/projects\/([\w-]+)\/gif$/, async (req, res, m) => {
 // ---------- server ----------
 async function serveIndex(res) {
   const html = (await fsp.readFile(path.join(PUBLIC_DIR, 'index.html'), 'utf8')).replace('__RR_TOKEN__', TOKEN);
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
   res.end(html);
 }
 

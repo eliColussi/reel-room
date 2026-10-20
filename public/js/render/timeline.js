@@ -1,14 +1,23 @@
 // Source time (the original recording) vs output time (after trims and cuts).
 // Everything in edit.json uses source time; the timeline maps it to the finished video.
 
+// Loudness below which a 20ms frame counts as "not talking", adapted to each recording's noise floor.
+const thresholds = new WeakMap();
+function quietBelow(audio) {
+  if (!thresholds.has(audio)) {
+    const sorted = [...audio.db].sort((a, b) => a - b);
+    const floor = sorted[Math.floor(sorted.length * 0.1)];
+    const speech = sorted[Math.floor(sorted.length * 0.9)];
+    thresholds.set(audio, floor + Math.max(6, (speech - floor) * 0.35));
+  }
+  return thresholds.get(audio);
+}
+
 // Pauses in the speech, from the loudness envelope measured at import.
 export function findSilences(audio, { minGap = 0.45 } = {}) {
   if (!audio?.db?.length) return [];
   const { db, rate } = audio;
-  const sorted = [...db].sort((a, b) => a - b);
-  const floor = sorted[Math.floor(sorted.length * 0.1)];
-  const speech = sorted[Math.floor(sorted.length * 0.9)];
-  const threshold = floor + Math.max(6, (speech - floor) * 0.35);
+  const threshold = quietBelow(audio);
   const quiet = db.map((v) => v < threshold);
   // A click or breath shorter than ~40ms inside a pause doesn't end the pause.
   for (let i = 0; i < quiet.length;) {
@@ -25,6 +34,29 @@ export function findSilences(audio, { minGap = 0.45 } = {}) {
     if (start >= 0 && (i - start) / rate >= minGap) out.push([start / rate, i / rate]);
     start = -1;
   }
+  return out;
+}
+
+// Dead space between words that isn't silent: breaths, room noise, a sigh before the next line.
+// Gaps in the transcript find it; the loudness check leaves alone anything clearly audible
+// (a laugh, a word the transcript missed).
+export function wordGaps(words, audio, { minGap = 0.45, duration } = {}) {
+  if (!words.length) return [];
+  const out = [];
+  const loudShare = (a, b) => {
+    if (!audio?.db?.length) return 0;
+    const th = quietBelow(audio) + 4;
+    let n = 0, loud = 0;
+    for (let i = Math.floor(a * audio.rate); i < Math.min(audio.db.length, Math.ceil(b * audio.rate)); i++, n++) if (audio.db[i] > th) loud++;
+    return n ? loud / n : 0;
+  };
+  const add = (a, b) => { if (b - a > 0.12 && loudShare(a, b) < 0.3) out.push([a, b]); };
+  if (words[0].s > 0.45) add(0, words[0].s - 0.15);
+  for (let i = 0; i + 1 < words.length; i++) {
+    if (words[i + 1].s - words[i].e >= minGap + 0.2) add(words[i].e + 0.14, words[i + 1].s - 0.12);
+  }
+  const last = words[words.length - 1].e;
+  if (duration - last > 0.6) add(last + 0.3, duration);
   return out;
 }
 
@@ -51,11 +83,13 @@ export function buildTimeline({ duration, spec, words = [], audio }) {
 
   if (c.silence?.enabled) {
     const pad = Math.max(0, +c.silence.padding || 0);
-    for (const [a, b] of findSilences(audio, { minGap: +c.silence.minGap || 0.45 })) {
+    const minGap = +c.silence.minGap || 0.45;
+    for (const [a, b] of findSilences(audio, { minGap })) {
       const s = a <= 0.05 ? 0 : a + pad;
       const e = b >= D - 0.05 ? D : b - pad;
       if (e - s > 0.05) cuts.push([s, e]);
     }
+    if (c.silence.words !== false) for (const r of wordGaps(words, audio, { minGap, duration: D })) cuts.push(r);
   }
 
   // Union of cut ranges, then the kept segments in between.

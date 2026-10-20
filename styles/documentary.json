@@ -8,7 +8,7 @@
     "frame": { "fit": "fill", "track": "face", "scale": 1 },
     "grade": { "brightness": 0.99, "contrast": 1.08, "saturation": 0.88, "warmth": 0.3, "vignette": 0.38, "grain": 0.25 },
     "captions": { "enabled": true, "mode": "phrase", "maxWords": 6, "maxChars": 26, "lines": 2, "font": "Instrument Serif", "weight": 400, "size": 70, "uppercase": false, "letterSpacing": 0, "lineHeight": 1.1, "color": "#F4EFE6", "highlight": "#F4EFE6", "highlightStyle": "none", "stroke": 0, "shadow": 20, "shadowColor": "rgba(0,0,0,0.55)", "background": null, "y": 0.75, "maxWidth": 0.8, "animation": "fade", "punctuation": true },
-    "cuts": { "silence": { "enabled": true, "minGap": 0.6, "padding": 0.16 }, "punchZoom": 1 },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.5, "padding": 0.14, "words": true }, "punchZoom": 1 },
     "audio": { "enhance": true, "music": null },
     "layers": []
   }

@@ -57,6 +57,7 @@ export async function openSettings(state, onChange) {
   const LANGS = ['auto', 'english', 'spanish', 'french', 'german', 'portuguese', 'italian', 'dutch', 'japanese', 'korean', 'chinese', 'hindi', 'arabic', 'russian', 'turkish', 'polish', 'swedish', 'indonesian', 'vietnamese', 'filipino'];
   const language = h('select', { class: 'input' }, LANGS.map((l) => h('option', { value: l }, l === 'auto' ? 'Detect automatically' : l[0].toUpperCase() + l.slice(1))));
   language.value = s.language || 'english';
+  const autoClean = h('input', { type: 'checkbox', class: 'toggle', checked: s.autoClean !== 'off' });
   const testOut = h('div', { class: 'hint' });
 
   const test = async (btn) => {
@@ -76,12 +77,13 @@ export async function openSettings(state, onChange) {
       h('div', { class: 'field' }, h('label', {}, 'Model (optional)'), model, h('div', { class: 'hint' }, 'Claude: sonnet, opus or haiku. Codex: any model your ChatGPT plan includes.')),
       h('div', { class: 'field' }, h('label', {}, 'GIPHY key for real GIFs (optional, free)'), giphy,
         h('div', { class: 'hint' }, 'Without one, the AI uses animated emoji stickers instead. Get a free key at ', h('a', { href: 'https://developers.giphy.com/dashboard/', target: '_blank' }, 'developers.giphy.com'), '.')),
+      h('label', { class: 'row field' }, autoClean, h('span', {}, 'Clean up new videos automatically: cut pauses, dead air and repeated takes as soon as they come in')),
       h('div', { class: 'field' }, h('label', {}, 'Transcription'), whisper),
       h('div', { class: 'field' }, h('label', {}, 'Spoken language'), language),
       h('div', { class: 'field' }, h('label', {}, 'Your videos, styles and library live in'), h('div', { class: 'code-block' }, info.dataDir)),
       !info.provider ? setupCard(state, onChange) : null),
     actions: [{ label: 'Save', primary: true, onClick: async (close) => {
-      await api.post('/api/settings', { provider: provider.value, model: model.value, giphyKey: giphy.value, whisper: whisper.value, language: language.value });
+      await api.post('/api/settings', { provider: provider.value, model: model.value, giphyKey: giphy.value, whisper: whisper.value, language: language.value, autoClean: autoClean.checked ? 'on' : 'off' });
       state.info = await api.get('/api/state');
       toast('Settings saved.', 'ok');
       close();

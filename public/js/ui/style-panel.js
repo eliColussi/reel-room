@@ -78,7 +78,7 @@ export class StylePanel {
       return h('button', { class: `style-tile ${cur.id === s.id ? 'on' : ''}`, title: s.description, onclick: () => this.apply(s) },
         shot, h('div', { class: 'lbl' }, s.emoji || '🎨', s.name));
     });
-    const vibe = h('textarea', { class: 'input', rows: 5, placeholder: 'The creative brief the AI follows for this style.' }, cur.vibe || '');
+    const vibe = h('textarea', { class: 'input style-guide', rows: 6, placeholder: 'Write your rules. The AI follows every line, every edit. e.g.\n• Only real images: when I name a company, product or news outlet, show its real logo or website behind me, animated.\n• No emoji, no stickers, no music.\n• White captions, sentence case, nothing on my face.' }, cur.vibe || '');
     const saveVibe = debounce(async () => {
       ed.style = { ...cur, vibe: vibe.value };
       await api.put(`/api/projects/${ed.id}/files/style.json`, ed.style);
@@ -92,7 +92,8 @@ export class StylePanel {
         h('button', { class: 'btn small', onclick: () => this.save(false) }, cur.id && !cur.builtin ? 'Save' : 'Save as my style'),
         cur.id && !cur.builtin ? h('button', { class: 'btn small ghost', onclick: () => this.save(true) }, 'Save as new') : null,
         h('button', { class: 'btn small ghost', onclick: () => downloadStyle(this.currentStyleObject()) }, 'Export')),
-      h('div', { class: 'hint', style: { margin: '6px 0 10px' } }, 'Click a style to restyle instantly. Your cuts, zooms and overlays stay. Then ask the AI for a full edit in that style.'),
+      h('h4', { class: 'guide-head' }, 'Style guide', h('span', { class: 'faint' }, ' · the AI follows it to the letter')), vibe,
+      h('div', { class: 'hint', style: { margin: '6px 0 10px' } }, 'Saved as you type. Press Save to keep it for future videos. Click a style below to start from another look; your cuts, zooms and overlays stay.'),
       h('div', { class: 'styles-grid' }, tiles),
       h('div', { class: 'knobs' },
         h('h4', {}, 'Make a new style with AI'),
@@ -102,7 +103,6 @@ export class StylePanel {
           ed.chatPanel.send(`Create a new style from this description and apply it to this video: "${describe.value.trim()}". Update edit.json so the preview shows it, and update style.json with a fitting name, a one-line description, a detailed vibe (the creative brief for future edits) and the look. Keep my cuts and content.`);
           ed.showTab('ai');
         } }, '✨ Build this style')),
-        h('h4', {}, 'Style brief (what the AI follows)'), vibe,
         ...this.knobs()));
   }
 
@@ -203,9 +203,9 @@ export class StylePanel {
     for (const s of this.styles) {
       try {
         eng.configure({ spec: applyLook(ed.spec || {}, s.look || {}), transcript: ed.transcript, analysis: ed.analysis, meta: ed.project.meta, resolution: 270 });
-        await eng.prepare({ resolveGif: ed.resolveGif });
+        await eng.prepare({ resolveGif: ed.resolveGif, resolveWeb: ed.resolveWeb });
         c.width = eng.W; c.height = eng.H;
-        eng.draw(c.getContext('2d'), ed.currentSrc(), ed.mainSource());
+        eng.draw(c.getContext('2d'), ed.currentSrc(), ed.mainSource() || src);
         this.thumbs.set(s.id, c.toDataURL('image/jpeg', 0.8));
         const tile = [...this.el.querySelectorAll('.style-tile')][this.styles.indexOf(s)];
         const shot = tile?.querySelector('.shot');

@@ -4,7 +4,7 @@ export const meta = {
   category: 'UI',
   description: 'A map pin that drops onto the frame, with a place name card next to it. Use it when you say where you are or where something happened.',
   props: {
-    label: 'Victoria, BC',
+    label: 'Lisbon, Portugal',
     sub: '', // optional second line, e.g. 'Canada' or '2 min away'
     color: '#FF3B30',
     x: 0.5, // the pin's tip
