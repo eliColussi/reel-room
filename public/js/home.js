@@ -1,6 +1,7 @@
 // Home: drop a video, reopen projects, manage styles and the shared asset library.
 import { api, h, add, toast, confirmBox, prompt, modal, fmtTime } from './lib.js';
 import { aiPill, setupCard, openSettings } from './ui/settings.js';
+import { deleteMyEffect } from './ui/my-effects.js';
 
 const VIDEO_TYPES = '.mp4,.mov,.m4v,.webm,.mkv,video/*';
 
@@ -15,7 +16,7 @@ export async function renderHome(root, state) {
   root.append(page);
 
   async function draw() {
-    const [projects, styles, library] = await Promise.all([api.get('/api/projects'), api.get('/api/styles'), api.get('/api/library')]);
+    const [projects, styles, library, mine] = await Promise.all([api.get('/api/projects'), api.get('/api/styles'), api.get('/api/library'), api.get('/api/my-effects').catch(() => [])]);
     page.innerHTML = '';
 
     const fileInput = h('input', { type: 'file', accept: VIDEO_TYPES, style: { display: 'none' }, onchange: () => fileInput.files[0] && upload(fileInput.files[0]) });
@@ -49,6 +50,7 @@ export async function renderHome(root, state) {
         projects.length ? h('div', { class: 'section-head' }, h('h2', {}, 'Your videos'), h('span', { class: 'muted' }, projects.length)) : null,
         projects.length ? h('div', { class: 'grid' }, projects.map((p) => projectCard(p, draw))) : null,
         stylesSection(styles, draw),
+        myEffectsSection(mine, draw),
         librarySection(library, draw)));
   }
 
@@ -112,6 +114,17 @@ export function downloadStyle(s) {
   const blob = new Blob([JSON.stringify(clean, null, 2)], { type: 'application/json' });
   const a = h('a', { href: URL.createObjectURL(blob), download: `${(s.name || 'style').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.reelroom-style.json` });
   document.body.append(a); a.click(); a.remove();
+}
+
+function myEffectsSection(list, refresh) {
+  return h('div', {},
+    h('div', { class: 'section-head' }, h('h2', {}, 'My effects'), h('span', { class: 'muted' }, 'Effects you kept from your edits. The AI reaches for these first.')),
+    list.length
+      ? h('div', { class: 'grid' }, list.map((e) => h('div', { class: 'card style-card' },
+        h('div', { class: 'name' }, `✨ ${e.name}`),
+        h('div', { class: 'sub' }, e.description || (e.savedFrom ? `From "${e.savedFrom}"` : '')),
+        h('div', { class: 'row', style: { marginTop: '6px' } }, h('button', { class: 'btn small danger', onclick: async () => { if (await deleteMyEffect(e)) refresh(); } }, 'Delete')))))
+      : h('div', { class: 'hint' }, 'None yet. In any video, ask the AI for an effect that doesn\'t exist ("a neon ring around me that pulses"), then press "Save to my effects" under its reply.'));
 }
 
 function librarySection(files, refresh) {

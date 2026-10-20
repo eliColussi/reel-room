@@ -44,7 +44,8 @@ self.onmessage = async (e) => {
     if (msg.type === 'load') { await load(msg.model); return; }
     if (msg.type === 'run') {
       await load(msg.model);
-      const opts = { return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 0, task: 'transcribe' };
+      // Dictation only needs the text; captions need a time for every word.
+      const opts = msg.plain ? { chunk_length_s: 30, task: 'transcribe' } : { return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 0, task: 'transcribe' };
       if (msg.language && msg.language !== 'auto') opts.language = msg.language;
       const out = await asr(msg.audio, opts);
       postMessage({ type: 'result', id: msg.id, chunks: out.chunks || [], text: out.text || '' });

@@ -29,6 +29,7 @@ const DIRS = {
   styles: path.join(DATA, 'styles'),
   library: path.join(DATA, 'library'),
   cache: path.join(DATA, 'cache'),
+  effects: path.join(DATA, 'effects'),
 };
 for (const d of Object.values(DIRS)) fs.mkdirSync(d, { recursive: true });
 
@@ -169,35 +170,61 @@ async function touchProject(id, patch = {}) {
   return p;
 }
 
-// Linear undo history of edit.json. Every save appends a version; undo/redo move a pointer.
-async function historyState(dir) { return readJson(path.join(dir, 'history', 'index.json'), { versions: [], current: -1 }); }
+// Versions of one video: Main plus any trial reels. The open version lives in edit.json and the
+// others wait in variants/<id>.json, so the editor and the AI only ever deal with edit.json.
+const VARIANT_ID = /^[a-z0-9-]{1,40}$/;
+async function activeVariant(dir) { return (await readJson(path.join(dir, 'project.json')))?.activeVariant || 'main'; }
+const titleCase = (id) => id.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+
+async function listVariants(dir) {
+  const active = await activeVariant(dir);
+  const ids = new Set(['main', active]);
+  for (const f of await fsp.readdir(path.join(dir, 'variants')).catch(() => [])) {
+    const m = /^([a-z0-9-]{1,40})\.json$/.exec(f);
+    if (m && m[1] !== 'index') ids.add(m[1]);
+  }
+  const meta = (await readJson(path.join(dir, 'variants', 'index.json'), {})) || {};
+  const num = (id) => (id === 'main' ? -1 : parseInt(id.replace(/\D+/g, ''), 10) || 999);
+  return [...ids].sort((a, b) => num(a) - num(b) || a.localeCompare(b)).map((id) => ({
+    id, active: id === active,
+    name: String(meta[id]?.name || (id === 'main' ? 'Main' : titleCase(id))).slice(0, 60),
+    test: String(meta[id]?.test || '').slice(0, 300),
+    caption: String(meta[id]?.caption || '').slice(0, 2200),
+  }));
+}
+
+// Linear undo history of edit.json, one per version. Every save appends; undo/redo move a pointer.
+async function historyDir(dir) { const v = await activeVariant(dir); return v === 'main' ? path.join(dir, 'history') : path.join(dir, 'history', v); }
+async function historyState(dir) { return readJson(path.join(await historyDir(dir), 'index.json'), { versions: [], current: -1 }); }
 async function recordVersion(dir, reason = 'edit') {
   const edit = await fsp.readFile(path.join(dir, 'edit.json'), 'utf8').catch(() => null);
   if (edit == null) return;
+  const hd = await historyDir(dir);
   const h = await historyState(dir);
   const cur = h.versions[h.current];
   if (cur) {
-    const prev = await fsp.readFile(path.join(dir, 'history', cur.file), 'utf8').catch(() => null);
+    const prev = await fsp.readFile(path.join(hd, cur.file), 'utf8').catch(() => null);
     if (prev === edit) return;
   }
-  for (const v of h.versions.slice(h.current + 1)) await fsp.rm(path.join(dir, 'history', v.file), { force: true });
+  for (const v of h.versions.slice(h.current + 1)) await fsp.rm(path.join(hd, v.file), { force: true });
   h.versions = h.versions.slice(0, h.current + 1);
   const file = `${Date.now()}.json`;
-  await fsp.mkdir(path.join(dir, 'history'), { recursive: true });
-  await fsp.writeFile(path.join(dir, 'history', file), edit);
+  await fsp.mkdir(hd, { recursive: true });
+  await fsp.writeFile(path.join(hd, file), edit);
   h.versions.push({ file, reason, at: Date.now() });
-  while (h.versions.length > 200) { const old = h.versions.shift(); await fsp.rm(path.join(dir, 'history', old.file), { force: true }); }
+  while (h.versions.length > 200) { const old = h.versions.shift(); await fsp.rm(path.join(hd, old.file), { force: true }); }
   h.current = h.versions.length - 1;
-  await writeJson(path.join(dir, 'history', 'index.json'), h);
+  await writeJson(path.join(hd, 'index.json'), h);
 }
 async function moveHistory(dir, delta) {
+  const hd = await historyDir(dir);
   const h = await historyState(dir);
   const next = h.current + delta;
   if (next < 0 || next >= h.versions.length) return null;
-  const text = await fsp.readFile(path.join(dir, 'history', h.versions[next].file), 'utf8');
+  const text = await fsp.readFile(path.join(hd, h.versions[next].file), 'utf8');
   await fsp.writeFile(path.join(dir, 'edit.json'), text);
   h.current = next;
-  await writeJson(path.join(dir, 'history', 'index.json'), h);
+  await writeJson(path.join(hd, 'index.json'), h);
   return { edit: JSON.parse(text), canUndo: next > 0, canRedo: next < h.versions.length - 1, reason: h.versions[delta < 0 ? next + 1 : next].reason };
 }
 
@@ -205,20 +232,35 @@ async function loadProject(id) {
   const dir = projectDir(id);
   const project = await readJson(path.join(dir, 'project.json'));
   if (!project) return null;
-  const [edit, style, transcript, analysis, chat, h, files] = await Promise.all([
+  const [edit, style, transcript, analysis, chat, h, files, variants] = await Promise.all([
     readJson(path.join(dir, 'edit.json')), readJson(path.join(dir, 'style.json')), readJson(path.join(dir, 'transcript.json')),
     readJson(path.join(dir, 'analysis.json')), readJson(path.join(dir, 'chat.json'), { messages: [], sessions: {} }), historyState(dir), listDir(dir),
+    listVariants(dir),
   ]);
   return {
     project: { ...project, id }, edit, style, transcript, analysis,
     chat: chat.messages || [], aiBusy: running.has(id),
     canUndo: h.current > 0, canRedo: h.current < h.versions.length - 1,
     files: files.filter((f) => /^(assets|effects|exports|frames)\//.test(f.path)),
+    variants,
   };
 }
 
 // Files the browser is allowed to write inside a project.
-const WRITABLE = /^(edit\.json|style\.json|transcript\.json|analysis\.json|render-report\.json|thumb\.jpg|preview\.jpg|frames\/[\w.-]+\.jpg|assets\/[^/].*|effects\/[\w.-]+\.js|exports\/[^/]+\.mp4)$/;
+const WRITABLE = /^(edit\.json|style\.json|transcript\.json|analysis\.json|render-report\.json|thumb\.jpg|preview\.jpg|frames\/[\w.-]+\.jpg|assets\/[^/].*|effects\/[\w.-]+\.js|exports\/[^/]+\.(mp4|md)|references\/ref-[\w-]+\/[\w.-]+\.(mp4|mov|m4v|webm|jpg|json|md|txt))$/;
+
+// ---------- my effects ----------
+// Effects the user chose to keep. Saved as <name>.js plus <name>.json (its meta, read in the
+// browser when saved) so the server never has to run effect code to list them.
+const EFFECT_NAME = /^[\w-]{1,60}$/;
+async function listMyEffects() {
+  const out = [];
+  for (const f of (await fsp.readdir(DIRS.effects).catch(() => [])).filter((f) => f.endsWith('.js')).sort()) {
+    const meta = (await readJson(path.join(DIRS.effects, f.replace(/\.js$/, '.json')), {})) || {};
+    out.push({ category: 'Mine', description: '', props: {}, ...meta, name: meta.name || f.replace(/\.js$/, ''), file: `mine/${f}`, mine: true });
+  }
+  return out;
+}
 
 // ---------- styles ----------
 async function listStyles() {
@@ -258,18 +300,23 @@ async function handleChat(req, res, id) {
 
   const chat = await readJson(chatFile(dir), { messages: [], sessions: {} });
   chat.sessions ||= {};
-  chat.messages.push({ role: 'user', text: body.display || message, at: Date.now() });
+  const userMsg = { role: 'user', text: body.display || message, at: Date.now() };
+  if (body.ref && /^ref-[\w-]+$/.test(body.ref)) userMsg.ref = body.ref;
+  if (body.kind) userMsg.kind = String(body.kind).slice(0, 20);
+  chat.messages.push(userMsg);
   await writeJson(chatFile(dir), chat);
 
   await recordVersion(dir, 'before AI');
   const editBefore = await fsp.readFile(path.join(dir, 'edit.json'), 'utf8').catch(() => '');
   const styleBefore = await fsp.readFile(path.join(dir, 'style.json'), 'utf8').catch(() => '');
-  await writeAgentContext({ dir, appDir: APP_DIR, libraryDir: DIRS.library, settings, provider });
+  const effectsBefore = await effectStamps(dir);
+  const variantsBefore = await variantStamps(dir);
+  await writeAgentContext({ dir, appDir: APP_DIR, libraryDir: DIRS.library, effectsDir: DIRS.effects, settings, provider, variants: await listVariants(dir) });
 
   const prompt = `${message}
 
 ---
-(Reel Room) You are editing the short video project in this folder. Follow ${provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'}. context.md, transcript.txt and preview.jpg are refreshed every turn, so re-read them when you need current facts. Make changes by editing edit.json (plus effects/*.js or style.json only when needed) and keep edit.json valid JSON. When you finish editing, reply with one or two short plain sentences saying what you changed. If the user asked for ideas, options or an interview, or you need an answer first, reply with a short numbered list instead and don't edit yet. No headings.`;
+(Reel Room) You are editing the short video project in this folder. Follow ${provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'}. context.md, transcript.txt and preview.jpg are refreshed every turn, so re-read them when you need current facts. Make changes by editing edit.json (plus effects/*.js, style.json, variants/ or references/ only when the request needs them) and keep every JSON file valid. When you finish editing, reply with one or two short plain sentences saying what you changed. If the user asked for ideas, options or an interview, or you need an answer first, reply with a short numbered list instead and don't edit yet. No headings.`;
 
   const images = (await fsp.readdir(path.join(dir, 'frames')).catch(() => [])).filter((f) => f.endsWith('.jpg')).sort().slice(0, 3).map((f) => path.join(dir, 'frames', f));
   let sessionId = chat.sessions[provider] || null;
@@ -287,33 +334,108 @@ async function handleChat(req, res, id) {
     result = await attempt(null, prompt);
   }
 
-  // Never leave the project with a broken edit.json: ask the AI to repair once, else roll back.
-  const validate = async () => { try { JSON.parse(await fsp.readFile(path.join(dir, 'edit.json'), 'utf8')); return null; } catch (e) { return e.message; } };
+  // Never leave the project with broken JSON: ask the AI to repair once, else roll back.
+  const validate = async () => {
+    const files = ['edit.json', ...(await fsp.readdir(path.join(dir, 'variants')).catch(() => [])).filter((f) => f.endsWith('.json')).map((f) => `variants/${f}`)];
+    for (const f of files) {
+      try { JSON.parse(await fsp.readFile(path.join(dir, f), 'utf8')); } catch (e) { return { file: f, message: `${f}: ${e.message}` }; }
+    }
+    return null;
+  };
   let bad = await validate();
   if (bad && result.ok) {
     send({ type: 'status', text: 'Fixing a JSON mistake' });
-    const fix = await attempt(result.sessionId, `edit.json is not valid JSON (${bad}). Fix the syntax so it parses, keeping your intended changes. Reply with one short sentence.`);
+    const fix = await attempt(result.sessionId, `${bad.file} is not valid JSON (${bad.message}). Fix the syntax so it parses, keeping your intended changes. Reply with one short sentence.`);
     if (fix.ok) result.sessionId = fix.sessionId;
     bad = await validate();
   }
-  if (bad) {
-    await fsp.writeFile(path.join(dir, 'edit.json'), editBefore);
-    if (result.ok) result = { ok: false, error: `The AI left edit.json broken (${bad}), so I rolled it back.`, sessionId: result.sessionId };
+  for (let guard = 0; bad && guard < 20; guard++) {
+    if (bad.file === 'edit.json') await fsp.writeFile(path.join(dir, 'edit.json'), editBefore);
+    else await fsp.rm(path.join(dir, bad.file), { force: true });
+    if (result.ok) result = { ok: false, error: `The AI left ${bad.file} broken (${bad.message}), so I ${bad.file === 'edit.json' ? 'rolled it back' : 'removed it'}.`, sessionId: result.sessionId };
+    bad = await validate();
   }
 
   if (result.sessionId) chat.sessions[provider] = result.sessionId;
   const editAfter = await fsp.readFile(path.join(dir, 'edit.json'), 'utf8').catch(() => '');
   const styleAfter = await fsp.readFile(path.join(dir, 'style.json'), 'utf8').catch(() => '');
-  const changed = editAfter !== editBefore || styleAfter !== styleBefore;
-  if (changed) await recordVersion(dir, 'AI edit');
-  chat.messages.push(result.ok
+  // Effects the AI wrote or changed this turn, so the chat can offer "Save to my effects".
+  const effectsAfter = await effectStamps(dir);
+  const newEffects = Object.keys(effectsAfter).filter((f) => effectsAfter[f] !== effectsBefore[f]);
+  const variantsAfter = await variantStamps(dir);
+  const variantsChanged = JSON.stringify(variantsAfter) !== JSON.stringify(variantsBefore);
+  const changed = editAfter !== editBefore || styleAfter !== styleBefore || newEffects.length > 0 || variantsChanged;
+  if (editAfter !== editBefore) await recordVersion(dir, 'AI edit');
+  const reply = result.ok
     ? { role: 'assistant', text: result.text, at: Date.now(), provider }
-    : { role: 'error', text: result.error, at: Date.now(), provider });
+    : { role: 'error', text: result.error, at: Date.now(), provider };
+  if (result.ok && newEffects.length) reply.effects = newEffects;
+  if (result.ok && variantsChanged) reply.variants = true;
+  chat.messages.push(reply);
   await writeJson(chatFile(dir), chat);
   await touchProject(id);
   const h = await historyState(dir);
-  send({ type: 'done', ok: result.ok, text: result.ok ? result.text : result.error, changed, canUndo: h.current > 0, canRedo: h.current < h.versions.length - 1 });
+  send({ type: 'done', ok: result.ok, text: result.ok ? result.text : result.error, changed, effects: reply.effects || [], variantsChanged, variants: await listVariants(dir), canUndo: h.current > 0, canRedo: h.current < h.versions.length - 1 });
   if (open) res.end();
+}
+
+async function effectStamps(dir) {
+  const out = {};
+  for (const f of (await fsp.readdir(path.join(dir, 'effects')).catch(() => [])).filter((f) => f.endsWith('.js'))) {
+    const st = await fsp.stat(path.join(dir, 'effects', f)).catch(() => null);
+    if (st) out[`effects/${f}`] = `${st.size}-${Math.floor(st.mtimeMs)}`;
+  }
+  return out;
+}
+async function variantStamps(dir) {
+  const out = {};
+  for (const f of (await fsp.readdir(path.join(dir, 'variants')).catch(() => [])).filter((f) => f.endsWith('.json')).sort()) {
+    const st = await fsp.stat(path.join(dir, 'variants', f)).catch(() => null);
+    if (st) out[f] = `${st.size}-${Math.floor(st.mtimeMs)}`;
+  }
+  return out;
+}
+
+// ---------- reference reels ----------
+// Downloads a reel someone else posted (Instagram, TikTok, YouTube...) with yt-dlp, when it is
+// installed, so the AI can study its editing. It stays in the project folder for analysis only.
+async function handleReference(req, res, id) {
+  const dir = projectDir(id);
+  const body = await readJsonBody(req);
+  const url = String(body.url || '').trim();
+  if (!/^https?:\/\/[^\s"'<>]+$/i.test(url)) return json(res, 400, { error: 'That doesn\'t look like a link.', code: 'bad-url' });
+  const ytdlp = which('yt-dlp');
+  if (!ytdlp) return json(res, 400, { error: 'Downloading links needs yt-dlp, a free downloader.', code: 'no-ytdlp' });
+  const rid = `ref-${Date.now().toString(36)}`;
+  const out = path.join(dir, 'references', rid);
+  await fsp.mkdir(out, { recursive: true });
+  const ff = which('ffmpeg');
+  const args = ['--no-playlist', '--no-progress', '--max-filesize', '400M', '-S', 'res:1080,vcodec:h264,acodec:aac',
+    '-f', ff ? 'bv*+ba/b' : 'b[ext=mp4]/b', '-o', path.join(out, 'video.%(ext)s')];
+  if (ff) args.push('--merge-output-format', 'mp4', '--ffmpeg-location', ff);
+  if (body.cookies === 'chrome') args.push('--cookies-from-browser', 'chrome');
+  args.push('--', url);
+  const result = await new Promise((resolve) => {
+    let err = '';
+    const c = spawn(ytdlp, args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    const timer = setTimeout(() => { err += '\nTimed out'; c.kill(); }, 180000);
+    c.stderr.on('data', (d) => { err += d; });
+    c.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, err: String(e) }); });
+    c.on('close', (code) => { clearTimeout(timer); resolve({ code, err }); });
+  });
+  const file = (await fsp.readdir(out).catch(() => [])).find((f) => /^video\.(mp4|mov|m4v|webm|mkv)$/.test(f));
+  if (result.code !== 0 || !file) {
+    await fsp.rm(out, { recursive: true, force: true });
+    const e = result.err;
+    const login = /login|log in|sign in|cookies|rate-limit|private|not available|unavailable|empty media response/i.test(e);
+    console.error(`[reference] yt-dlp failed for ${url}:\n${e.trim().split('\n').slice(-4).join('\n')}`);
+    return json(res, 502, {
+      code: login ? 'login' : 'failed',
+      error: login ? 'That site wants you signed in before it shares this video.' : 'Couldn\'t download that link.',
+      detail: e.trim().split('\n').filter((l) => /ERROR/.test(l)).pop()?.slice(0, 300) || '',
+    });
+  }
+  json(res, 200, { rid, path: `references/${rid}/${file}`, site: new URL(url).hostname.replace(/^www\./, '') });
 }
 
 // ---------- GIFs and emoji ----------
@@ -362,6 +484,7 @@ route('GET', /^\/api\/state$/, async (req, res) => {
     },
     provider: pickProvider(agents, settings.provider),
     ffmpeg: !!which('ffmpeg'),
+    ytdlp: !!which('yt-dlp'),
   });
 });
 
@@ -448,7 +571,7 @@ route('PUT', /^\/api\/projects\/([\w-]+)\/files\/(.+)$/, async (req, res, m) => 
 
 route('DELETE', /^\/api\/projects\/([\w-]+)\/files\/(.+)$/, async (req, res, m) => {
   const rel = decodeURIComponent(m[2]);
-  if (!/^(assets|exports|effects)\//.test(rel)) return fail(res, 403, 'Not allowed');
+  if (!/^(assets|exports|effects|references)\//.test(rel)) return fail(res, 403, 'Not allowed');
   await fsp.rm(safeJoin(projectDir(m[1]), rel), { force: true });
   json(res, 200, { ok: true });
 });
@@ -459,6 +582,57 @@ route('POST', /^\/api\/projects\/([\w-]+)\/(undo|redo)$/, async (req, res, m) =>
 });
 
 route('POST', /^\/api\/projects\/([\w-]+)\/chat$/, (req, res, m) => handleChat(req, res, m[1]));
+route('POST', /^\/api\/projects\/([\w-]+)\/reference$/, (req, res, m) => handleReference(req, res, m[1]));
+
+// Open another version: park the current edit.json, bring the chosen one in.
+route('POST', /^\/api\/projects\/([\w-]+)\/variants\/switch$/, async (req, res, m) => {
+  if (running.has(m[1])) return fail(res, 409, 'Wait for the AI to finish first.');
+  const dir = projectDir(m[1]);
+  const to = String((await readJsonBody(req)).to || '');
+  if (!VARIANT_ID.test(to) || to === 'index') return fail(res, 400, 'Bad version');
+  const from = await activeVariant(dir);
+  if (to !== from) {
+    const target = path.join(dir, 'variants', `${to}.json`);
+    if (!(await exists(target))) return fail(res, 404, 'That version doesn\'t exist any more.');
+    JSON.parse(await fsp.readFile(target, 'utf8'));
+    await fsp.mkdir(path.join(dir, 'variants'), { recursive: true });
+    await fsp.copyFile(path.join(dir, 'edit.json'), path.join(dir, 'variants', `${from}.json`));
+    await fsp.copyFile(target, path.join(dir, 'edit.json'));
+    await fsp.rm(target, { force: true });
+    await touchProject(m[1], { activeVariant: to });
+    await recordVersion(dir, 'opened');
+  }
+  json(res, 200, await loadProject(m[1]));
+});
+
+// Copy the open version into a new one ("try something else without losing this").
+route('POST', /^\/api\/projects\/([\w-]+)\/variants\/duplicate$/, async (req, res, m) => {
+  const dir = projectDir(m[1]);
+  const list = await listVariants(dir);
+  const n = Math.max(0, ...list.map((v) => parseInt((/^copy-(\d+)$/.exec(v.id) || [])[1] || '0', 10))) + 1;
+  const id = `copy-${n}`;
+  await fsp.mkdir(path.join(dir, 'variants'), { recursive: true });
+  await fsp.copyFile(path.join(dir, 'edit.json'), path.join(dir, 'variants', `${id}.json`));
+  const indexFile = path.join(dir, 'variants', 'index.json');
+  const index = (await readJson(indexFile, {})) || {};
+  const cur = list.find((v) => v.active);
+  index[id] = { name: `Copy of ${cur?.name || 'Main'}`, test: '' };
+  await writeJson(indexFile, index);
+  json(res, 200, { id, variants: await listVariants(dir) });
+});
+
+route('DELETE', /^\/api\/projects\/([\w-]+)\/variants\/([a-z0-9-]{1,40})$/, async (req, res, m) => {
+  const dir = projectDir(m[1]);
+  const id = m[2];
+  if (id === 'main' || id === 'index') return fail(res, 400, 'The main version can\'t be deleted.');
+  if (id === (await activeVariant(dir))) return fail(res, 400, 'Open another version before deleting this one.');
+  await fsp.rm(path.join(dir, 'variants', `${id}.json`), { force: true });
+  await fsp.rm(path.join(dir, 'history', id), { recursive: true, force: true });
+  const indexFile = path.join(dir, 'variants', 'index.json');
+  const index = await readJson(indexFile, null);
+  if (index && index[id]) { delete index[id]; await writeJson(indexFile, index); }
+  json(res, 200, { variants: await listVariants(dir) });
+});
 route('POST', /^\/api\/projects\/([\w-]+)\/chat\/cancel$/, async (req, res, m) => { running.get(m[1])?.cancel(); json(res, 200, { ok: true }); });
 route('POST', /^\/api\/projects\/([\w-]+)\/chat\/reset$/, async (req, res, m) => {
   const file = chatFile(projectDir(m[1]));
@@ -502,6 +676,27 @@ route('POST', /^\/api\/projects\/([\w-]+)\/convert$/, async (req, res, m) => {
 });
 
 route('GET', /^\/api\/effects$/, async (req, res) => json(res, 200, await effectCatalog(APP_DIR)));
+route('GET', /^\/api\/my-effects$/, async (req, res) => json(res, 200, await listMyEffects()));
+route('PUT', /^\/api\/my-effects\/([\w-]+)$/, async (req, res, m) => {
+  if (!EFFECT_NAME.test(m[1])) return fail(res, 400, 'Bad name');
+  const body = await readJsonBody(req);
+  if (typeof body.code !== 'string' || !body.code.includes('export')) return fail(res, 400, 'That isn\'t an effect file.');
+  const meta = {};
+  const src = body.meta && typeof body.meta === 'object' ? body.meta : {};
+  for (const k of ['name', 'category', 'description', 'props', 'presets', 'fonts', 'needs', 'duration']) if (src[k] !== undefined) meta[k] = src[k];
+  meta.savedFrom = String(body.from || '').slice(0, 80);
+  meta.saved = Date.now();
+  await fsp.mkdir(DIRS.effects, { recursive: true });
+  await fsp.writeFile(path.join(DIRS.effects, `${m[1]}.js`), body.code);
+  await writeJson(path.join(DIRS.effects, `${m[1]}.json`), meta);
+  json(res, 200, { ok: true, file: `mine/${m[1]}.js` });
+});
+route('DELETE', /^\/api\/my-effects\/([\w-]+)$/, async (req, res, m) => {
+  if (!EFFECT_NAME.test(m[1])) return fail(res, 400, 'Bad name');
+  await fsp.rm(path.join(DIRS.effects, `${m[1]}.js`), { force: true });
+  await fsp.rm(path.join(DIRS.effects, `${m[1]}.json`), { force: true });
+  json(res, 200, { ok: true });
+});
 route('GET', /^\/api\/styles$/, async (req, res) => json(res, 200, await listStyles()));
 route('PUT', /^\/api\/styles\/([\w-]+)$/, async (req, res, m) => {
   const style = await readJsonBody(req);
@@ -564,6 +759,7 @@ const server = http.createServer(async (req, res) => {
     if ((req.method === 'GET' || req.method === 'HEAD') && p.startsWith('/files/')) {
       const rest = p.slice(7);
       if (rest.startsWith('library/')) return sendFile(req, res, safeJoin(DIRS.library, rest.slice(8)));
+      if (rest.startsWith('mine/')) return sendFile(req, res, safeJoin(DIRS.effects, rest.slice(5)));
       const mm = /^projects\/([\w-]+)\/(.+)$/.exec(rest);
       if (mm) return sendFile(req, res, safeJoin(projectDir(mm[1]), mm[2]));
       return fail(res, 404, 'Not found');

@@ -47,6 +47,7 @@ export class Assets {
     if (/^(https?:|data:|blob:)/.test(s)) return s;
     if (s.startsWith('/')) return s;
     if (s.startsWith('builtin/')) return `/app/effects/${s.slice(8)}`;
+    if (s.startsWith('mine/')) return `/files/mine/${s.slice(5).split('/').map(encodeURIComponent).join('/')}`;
     if (s.startsWith('library/')) return `/files/${s.split('/').map(encodeURIComponent).join('/')}`;
     return `/files/projects/${this.projectId}/${s.split('/').map(encodeURIComponent).join('/')}`;
   }

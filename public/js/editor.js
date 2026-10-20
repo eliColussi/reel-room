@@ -1,5 +1,6 @@
-// The editor screen: live preview, timeline, and the side panels (AI, Style, Effects, Text, Media).
-import { api, h, toast, fmtTime, debounce, canvasBlob, confirmBox } from './lib.js';
+// The editor screen: live preview and timeline on the left, the chat on the right. Style, Effects,
+// Transcript, Media and Code are tools that open above the chat box, which never goes away.
+import { api, h, add, toast, fmtTime, debounce, canvasBlob, confirmBox } from './lib.js';
 import { Engine } from './render/engine.js';
 import { Assets } from './render/media.js';
 import { applyLook, clone } from './spec.js';
@@ -18,11 +19,12 @@ import { aiPill } from './ui/settings.js';
 export async function openEditor(root, id, state) {
   const data = await api.get(`/api/projects/${id}`);
   const ed = new Editor(root, id, state, data);
+  window.__ed = ed; // handy in DevTools
   await ed.init();
   return ed;
 }
 
-const TABS = [['ai', 'AI'], ['style', 'Style'], ['effects', 'Effects'], ['text', 'Transcript'], ['media', 'Media'], ['json', 'Code']];
+const TABS = [['ai', '💬 Chat'], ['style', 'Style'], ['effects', 'Effects'], ['text', 'Transcript'], ['media', 'Media'], ['json', 'Code']];
 
 class Editor {
   constructor(root, id, state, data) {
@@ -36,6 +38,7 @@ class Editor {
     this.analysis = data.analysis || {};
     this.files = data.files || [];
     this.chat = data.chat || [];
+    this.variants = data.variants || [];
     this.aiBusyAtOpen = data.aiBusy;
     this.canUndo = data.canUndo;
     this.canRedo = data.canRedo;
@@ -70,9 +73,13 @@ class Editor {
     this.redoBtn = h('button', { class: 'btn small ghost', title: 'Redo (⇧⌘Z)', onclick: () => this.redo() }, '↷ Redo');
     this.pillSlot = h('span');
     const safeBtn = h('button', { class: 'btn small ghost', onclick: () => { this.safeZones = !this.safeZones; safeBtn.classList.toggle('on', this.safeZones); safeBtn.textContent = this.safeZones ? '▣ Safe zones on' : '▢ Safe zones'; this.dirty = true; } }, '▢ Safe zones');
+    this.versionsEl = h('div', { class: 'versions' });
     this.stage = h('div', { class: 'stage' },
+      this.versionsEl,
       this.stageInner,
-      h('div', { class: 'stage-controls' }, this.playBtn, this.timeEl, h('div', { class: 'spacer' }), safeBtn));
+      h('div', { class: 'stage-controls' }, this.playBtn, this.timeEl, h('div', { class: 'spacer' }),
+        h('button', { class: 'btn small ghost', title: 'Copy this edit into a new version, to try something different without losing it', onclick: () => this.duplicateVariant() }, '⧉ New version'),
+        safeBtn));
 
     this.tabBtns = new Map();
     this.panelSlot = h('div', { style: { minHeight: 0, display: 'grid' } });
@@ -81,7 +88,8 @@ class Editor {
       this.tabBtns.set(k, b);
       return b;
     }));
-    this.side = h('div', { class: 'side' }, tabs, this.panelSlot);
+    this.chatPanel = new ChatPanel(this);
+    this.side = h('div', { class: 'side' }, tabs, this.panelSlot, this.chatPanel.composer);
 
     const title = h('input', { class: 'title-input', value: this.project.name || '', onchange: async (e) => { await api.patch(`/api/projects/${this.id}`, { name: e.target.value }); this.project.name = e.target.value; } });
     this.timeline = new Timeline(this);
@@ -96,8 +104,8 @@ class Editor {
     this.root.append(this.el);
     this.refreshPill();
     this.updateUndo();
+    this.renderVersions();
 
-    this.chatPanel = new ChatPanel(this);
     this.panels = {
       ai: this.chatPanel,
       style: new StylePanel(this),
@@ -126,6 +134,7 @@ class Editor {
   showTab(k) {
     this.tab = k;
     for (const [key, b] of this.tabBtns) b.classList.toggle('on', key === k);
+    this.side.classList.toggle('tool-open', k !== 'ai');
     const p = this.panels[k];
     this.panelSlot.innerHTML = '';
     this.panelSlot.append(p.el);
@@ -167,8 +176,8 @@ class Editor {
     this.seekSrc(first ? first.s + Math.min(0.4, (first.e - first.s) / 2) : this.engine.timeline.segments[0].s);
     this.loop = this.loop.bind(this);
     this.raf = requestAnimationFrame(this.loop);
-    this.showTab(this.freshStart ? 'style' : 'ai');
-    if (this.freshStart) toast('Pick a starting style, then open the AI tab and ask for a full edit.', 'info', 6000);
+    this.showTab('ai');
+    if (this.freshStart) toast('Tip: pick a starting look in Style, or just tell the AI what you want.', 'info', 6000);
     if (this.aiBusyAtOpen) this.chatPanel.waitForRunning();
     setTimeout(() => this.uploadPreview().catch(() => {}), 1500);
   }
@@ -272,6 +281,8 @@ class Editor {
     const eng = this.engine;
     eng.configure({ spec: this.spec || {}, transcript: this.transcript, analysis: this.analysis, meta: this.project.meta, resolution: 1080 });
     this.fitCanvas();
+    // If the new cuts removed the moment on screen, jump to the next moment that's still in.
+    if (this.video?.src && !this.playing && eng.timeline.isCut(this.currentSrc())) this.seekSrc(this.currentSrc());
     this.dirty = true;
     const token = ++this.prepToken;
     await eng.prepare({ resolveGif: this.resolveGif });
@@ -338,6 +349,66 @@ class Editor {
     } catch (e) { toast(e.message); }
   }
 
+  // ---------- versions (Main + trial reels) ----------
+  renderVersions() {
+    const el = this.versionsEl;
+    if (!el) return;
+    const vs = this.variants || [];
+    el.innerHTML = '';
+    el.style.display = vs.length > 1 ? '' : 'none';
+    if (vs.length < 2) return;
+    const cur = vs.find((v) => v.active);
+    add(el,
+      h('div', { class: 'ver-row' },
+        vs.map((v) => h('button', { class: `ver ${v.active ? 'on' : ''}`, title: v.test ? `Tests: ${v.test}` : v.name, onclick: () => this.openVariant(v.id) },
+          v.name,
+          v.active || v.id === 'main' ? null : h('span', { class: 'x', title: 'Delete this version', onclick: (e) => { e.stopPropagation(); this.deleteVariant(v); } }, '✕')))),
+      cur && (cur.test || cur.caption) ? h('div', { class: 'ver-info' },
+        cur.test ? h('span', { class: 'muted' }, `Tests: ${cur.test}`) : null,
+        h('div', { class: 'spacer' }),
+        cur.caption ? h('button', { class: 'btn small ghost', title: cur.caption, onclick: () => navigator.clipboard.writeText(cur.caption).then(() => toast('Post caption copied.', 'ok')) }, '📋 Copy post caption') : null) : null);
+  }
+
+  async openVariant(id) {
+    if ((this.variants || []).find((v) => v.active)?.id === id) return;
+    if (this.chatPanel.busy) { toast('Wait for the AI to finish first.'); return; }
+    await this.flushSave();
+    this.pause();
+    try {
+      const data = await api.post(`/api/projects/${this.id}/variants/switch`, { to: id });
+      this.spec = data.edit;
+      this.canUndo = data.canUndo; this.canRedo = data.canRedo;
+      this.variants = data.variants || [];
+      this.files = data.files || this.files;
+      this.selected = null;
+      this.showInspector();
+      this.updateUndo();
+      this.renderVersions();
+      await this.rebuild();
+      if (this.tab === 'text') this.panels.text.draw();
+      if (this.tab === 'json') this.showJson();
+      const tl = this.engine.timeline;
+      this.seekSrc(tl.segments[0].s + 0.05);
+      this.uploadPreview().catch(() => {});
+    } catch (e) { toast(e.message, 'error'); }
+  }
+
+  async duplicateVariant() {
+    if (this.chatPanel.busy) { toast('Wait for the AI to finish first.'); return; }
+    await this.flushSave();
+    const r = await api.post(`/api/projects/${this.id}/variants/duplicate`).catch((e) => { toast(e.message, 'error'); return null; });
+    if (!r) return;
+    this.variants = r.variants;
+    await this.openVariant(r.id);
+    toast('Made a copy. Change anything; the other versions stay as they were.', 'ok', 5000);
+  }
+
+  async deleteVariant(v) {
+    if (!(await confirmBox('Delete this version?', `"${v.name}" will be removed. The other versions stay.`, 'Delete'))) return;
+    const r = await api.del(`/api/projects/${this.id}/variants/${v.id}`).catch((e) => { toast(e.message, 'error'); return null; });
+    if (r) { this.variants = r.variants; this.renderVersions(); }
+  }
+
   async reloadFiles() {
     const data = await api.get(`/api/projects/${this.id}`);
     this.files = data.files || [];
@@ -349,6 +420,8 @@ class Editor {
     this.canUndo = data.canUndo; this.canRedo = data.canRedo;
     this.updateUndo();
     this.setAiBusy(false);
+    if (result?.variants || data.variants) { this.variants = result?.variants || data.variants; this.renderVersions(); }
+    if (result?.variantsChanged) toast('Your versions are ready above the preview. Click one to watch it.', 'ok', 6000);
     if (!result?.changed) return;
     this.spec = data.edit;
     this.style = data.style;
@@ -680,13 +753,16 @@ class Editor {
         e.preventDefault();
         const tl = this.engine.timeline;
         this.seekOut(Math.max(0, Math.min(tl.outDuration, tl.toOut(this.currentSrc()) + (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 5 : 1))));
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && this.timeline.selection && !this.selected) {
+        e.preventDefault();
+        this.timeline.cutSelection();
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected && this.selected !== '__captions') {
         e.preventDefault();
         const key = this.selected;
         if (key.startsWith('zoom:')) this.patchSpec((s) => { s.zooms.splice(+key.slice(5), 1); }, 'delete zoom');
         else { const i = this.layerIndex(key); if (i >= 0) this.patchSpec((s) => { s.layers.splice(i, 1); }, 'delete layer'); }
         this.select(null);
-      } else if (e.key === 'Escape') this.select(null);
+      } else if (e.key === 'Escape') { this.select(null); if (this.timeline.selection) { this.timeline.selection = null; this.timeline.draw(); } }
     };
     document.addEventListener('keydown', this.onKey);
   }

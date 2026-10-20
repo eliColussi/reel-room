@@ -97,12 +97,33 @@ function getWorker() {
 }
 
 let reqId = 0;
-function runWhisper(audio, model, language) {
+function runWhisper(audio, model, language, extra = {}) {
   const id = ++reqId;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    getWorker().postMessage({ type: 'run', id, audio, model, language }, [audio.buffer]);
+    getWorker().postMessage({ type: 'run', id, audio, model, language, ...extra }, [audio.buffer]);
   });
+}
+
+// Start loading the speech model early (e.g. as soon as the mic opens) so dictation feels instant.
+export function preloadWhisper(model = 'base') { getWorker().postMessage({ type: 'load', model }); }
+
+// Mic dictation: 16 kHz mono audio in, plain text out. Whisper invents "Thank you." on silence,
+// so near-silent recordings return nothing.
+export async function dictate(pcm16k, { model = 'base', language = 'english' } = {}) {
+  let peak = 0;
+  for (let i = 0; i + 320 <= pcm16k.length; i += 320) {
+    let s = 0;
+    for (let j = i; j < i + 320; j++) s += pcm16k[j] * pcm16k[j];
+    peak = Math.max(peak, Math.sqrt(s / 320));
+  }
+  if (pcm16k.length < 16000 * 0.3 || peak < 0.01) return '';
+  const audio = new Float32Array(pcm16k.length + 16000);
+  audio.set(pcm16k);
+  const res = await runWhisper(audio, model, language, { plain: true });
+  return String(res.text || '')
+    .replace(/\[[^\]]*\]|\([^)]*(music|silence|blank|inaudible)[^)]*\)/gi, '')
+    .replace(/\s+/g, ' ').trim();
 }
 
 // Split long audio into ≤26s pieces in the middle of the quietest ~0.4s stretch, so no word is cut.
