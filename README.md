@@ -21,13 +21,15 @@ The AI reads your transcript, looks at your frames, edits the timeline, and you 
 
 ## What you need
 
+Reel Room is built and tested on macOS. The Windows launcher is included but hasn't been tested yet.
+
 1. **Google Chrome, Microsoft Edge or Brave.** Video encoding uses WebCodecs, which these browsers support best. Safari and Firefox aren't supported yet.
 2. **Node.js 18 or newer.** Free from [nodejs.org](https://nodejs.org). It runs the small local server. No `npm install` needed.
 3. **One AI command-line app, signed in:**
    - Claude (Pro or Max plan). Install Claude Code, then run `claude` once and log in.
      - Mac/Linux: `curl -fsSL https://claude.ai/install.sh | bash`
      - Windows (PowerShell): `irm https://claude.ai/install.ps1 | iex`
-   - ChatGPT (Plus or Pro plan). Run `npm install -g @openai/codex`, then `codex login`.
+   - ChatGPT (Plus or Pro plan). Run `npm install -g @openai/codex`, then `codex login`. (Supported, but less tested than Claude so far.)
 
 You only need one of the two. If both are installed, Reel Room uses Claude Code first (switch in Settings).
 
