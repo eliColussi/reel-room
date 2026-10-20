@@ -142,3 +142,7 @@ An edit is a single JSON file (`edit.json`). Times are always source seconds, so
 ## Credits
 
 Built on [Mediabunny](https://mediabunny.dev) (MPL-2.0), [Transformers.js](https://github.com/huggingface/transformers.js) and Whisper (Apache-2.0 / MIT), [MediaPipe](https://ai.google.dev/edge/mediapipe) (Apache-2.0), [Noto animated emoji](https://googlefonts.github.io/noto-emoji-animation/) (CC BY 4.0) and Google Fonts. GIFs, when enabled, are Powered by GIPHY.
+
+## License
+
+MIT. Use it, change it, ship it. See [LICENSE](LICENSE).
