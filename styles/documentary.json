@@ -1,0 +1,15 @@
+{
+  "name": "Documentary",
+  "emoji": "🎞️",
+  "description": "Cinematic and warm. Serif type, film texture, slow pushes, chapter titles.",
+  "vibe": "A short documentary, not a social edit. Warm film grade with light grain. Serif captions, sentence case, never bouncy. Open with the letterbox effect over the first 3 seconds and a chapter-title or a quiet serif hook. Slow pushes (ease \"push\", 1.08-1.15) across whole sentences, never snap zooms. Use quote-card for the single most quotable line and chapter-title when the topic shifts. No emoji, no GIFs. The film-look effect at low strength across the whole video is welcome.",
+  "look": {
+    "format": { "aspect": "9:16", "fps": 24 },
+    "frame": { "fit": "fill", "track": "face", "scale": 1 },
+    "grade": { "brightness": 0.99, "contrast": 1.08, "saturation": 0.88, "warmth": 0.3, "vignette": 0.38, "grain": 0.25 },
+    "captions": { "enabled": true, "mode": "phrase", "maxWords": 6, "maxChars": 26, "lines": 2, "font": "Instrument Serif", "weight": 400, "size": 70, "uppercase": false, "letterSpacing": 0, "lineHeight": 1.1, "color": "#F4EFE6", "highlight": "#F4EFE6", "highlightStyle": "none", "stroke": 0, "shadow": 20, "shadowColor": "rgba(0,0,0,0.55)", "background": null, "y": 0.75, "maxWidth": 0.8, "animation": "fade", "punctuation": true },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.6, "padding": 0.16 }, "punchZoom": 1 },
+    "audio": { "enhance": true, "music": null },
+    "layers": []
+  }
+}

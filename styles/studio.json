@@ -1,0 +1,16 @@
+{
+  "name": "Studio",
+  "emoji": "🎬",
+  "description": "No green screen needed. You, cut out, in front of a clean studio backdrop with big words behind you.",
+  "vibe": "A studio shoot without the studio. The background is removed and replaced with the style's gradient (re-colour it to complement the speaker's clothes if it clashes). The signature move: one or two big bold words placed BEHIND the speaker (text layers with behindSubject true, size 220-320, heavy font, y about 0.3) on the key lines. Captions clean and white. Smooth zooms. person-outline (Sticker preset) for the hook is a good option. No GIFs.",
+  "look": {
+    "format": { "aspect": "9:16", "fps": 30 },
+    "frame": { "fit": "fill", "track": "face", "scale": 1 },
+    "background": { "remove": true, "type": "gradient", "colors": ["#1E1B4B", "#0B0B12"], "angle": 170, "dim": 0 },
+    "grade": { "brightness": 1.02, "contrast": 1.06, "saturation": 1.04, "warmth": 0, "vignette": 0, "grain": 0 },
+    "captions": { "enabled": true, "mode": "phrase", "maxWords": 4, "maxChars": 20, "lines": 2, "font": "Poppins", "weight": 700, "size": 66, "uppercase": false, "letterSpacing": 0, "lineHeight": 1.12, "color": "#FFFFFF", "highlight": "#A5B4FC", "highlightStyle": "color", "stroke": 0, "shadow": 24, "shadowColor": "rgba(0,0,0,0.6)", "background": null, "y": 0.74, "maxWidth": 0.84, "animation": "pop", "punctuation": false },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.45, "padding": 0.1 }, "punchZoom": 1 },
+    "audio": { "enhance": true, "music": null },
+    "layers": []
+  }
+}

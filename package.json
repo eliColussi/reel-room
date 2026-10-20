@@ -1,0 +1,14 @@
+{
+  "name": "reel-room",
+  "version": "0.1.0",
+  "description": "A free, local AI video editor for short-form reels. Uses the Claude or ChatGPT plan you already pay for.",
+  "type": "module",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

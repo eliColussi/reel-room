@@ -1,0 +1,16 @@
+{
+  "name": "Podcast",
+  "emoji": "🎙️",
+  "description": "For landscape interviews and streams: the full shot over a blurred backdrop, boxed captions below.",
+  "vibe": "A podcast or interview clip. Show the whole landscape shot (frame fit \"fit\") over a blurred copy, nudged up so captions sit in the space below. Boxed captions, easy to read. A lower-third with the speaker's name in the first few seconds if the user gives it. Slow, sparse zooms. A hook title at the top for the first 3 seconds. Nothing flashy.",
+  "look": {
+    "format": { "aspect": "9:16", "fps": 30 },
+    "frame": { "fit": "fit", "track": "face", "scale": 1, "offsetY": -0.25 },
+    "background": { "remove": false, "type": "blur", "blur": 50, "dim": 0.45 },
+    "grade": { "brightness": 1.02, "contrast": 1.05, "saturation": 1.02, "warmth": 0, "vignette": 0, "grain": 0 },
+    "captions": { "enabled": true, "mode": "phrase", "maxWords": 5, "maxChars": 22, "lines": 2, "font": "Inter", "weight": 700, "size": 58, "uppercase": false, "letterSpacing": -0.3, "lineHeight": 1.2, "color": "#FFFFFF", "highlight": "#FFD60A", "highlightStyle": "color", "stroke": 0, "shadow": 0, "background": { "color": "rgba(10,10,12,0.78)", "radius": 14, "padding": 16 }, "y": 0.7, "maxWidth": 0.86, "animation": "fade", "punctuation": true },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.6, "padding": 0.14 }, "punchZoom": 1 },
+    "audio": { "enhance": true, "music": null },
+    "layers": []
+  }
+}

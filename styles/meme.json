@@ -1,0 +1,15 @@
+{
+  "name": "Meme",
+  "emoji": "🤪",
+  "description": "Silly, fast and reactive. GIFs, emoji, shakes and snap zooms where the joke lands.",
+  "vibe": "Playful and chaotic on purpose, but every gag must land on a real moment in the transcript. Reaction GIFs (gif layers with a specific, funny query) or animated emoji right after a line that deserves a reaction, 1.5-2.5s each, beside the head, never on the face. Snap zooms (1.3-1.5) and the shake effect on punchlines. Captions one word at a time, big, bouncy. Use a different reaction every time; never repeat the same emoji. Kinetic words or a stamp effect for the funniest line. Still readable: never more than two overlays at once.",
+  "look": {
+    "format": { "aspect": "9:16", "fps": 30 },
+    "frame": { "fit": "fill", "track": "face", "scale": 1 },
+    "grade": { "brightness": 1.03, "contrast": 1.12, "saturation": 1.2, "warmth": 0.05, "vignette": 0, "grain": 0 },
+    "captions": { "enabled": true, "mode": "word", "maxWords": 1, "maxChars": 14, "lines": 1, "font": "Luckiest Guy", "weight": 400, "size": 110, "uppercase": true, "letterSpacing": 1, "lineHeight": 1, "color": "#FFFFFF", "highlight": "#FFFFFF", "highlightStyle": "none", "stroke": 10, "strokeColor": "#000000", "shadow": 0, "background": null, "y": 0.68, "maxWidth": 0.9, "animation": "bounce", "punctuation": false },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.3, "padding": 0.06 }, "punchZoom": 1.14 },
+    "audio": { "enhance": true, "music": null },
+    "layers": []
+  }
+}

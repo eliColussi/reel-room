@@ -1,0 +1,15 @@
+{
+  "name": "Bold",
+  "emoji": "⚡",
+  "description": "High-energy creator edit with punchy captions, snap zooms and tight cuts, without the clichés.",
+  "vibe": "Energetic and confident, but designed, not generic. Captions are heavy, uppercase, 2-3 words at a time, with the spoken word highlighted in ONE accent color that suits the footage (pick it from the clothes or background in the frames; avoid the default yellow if it clashes). Tight silence cuts plus a light punchZoom so jump cuts feel deliberate. Snap zooms (1.18-1.3) on punchlines and numbers, roughly one every 5-8 seconds, never two in a row of the same size. Emphasis colour on 1 word per sentence max. A hook title in the first 2.5s. At most two emoji reactions in the whole video and only where the line genuinely calls for one. No GIFs unless asked. Explainer graphics (counter, stat card, checklist) are welcome when the speaker says numbers or steps.",
+  "look": {
+    "format": { "aspect": "9:16", "fps": 30 },
+    "frame": { "fit": "fill", "track": "face", "scale": 1 },
+    "grade": { "brightness": 1.02, "contrast": 1.1, "saturation": 1.08, "warmth": 0, "vignette": 0.18, "grain": 0 },
+    "captions": { "enabled": true, "mode": "phrase", "maxWords": 3, "maxChars": 16, "lines": 2, "font": "Montserrat", "weight": 900, "size": 84, "uppercase": true, "letterSpacing": 0, "lineHeight": 1.05, "color": "#FFFFFF", "highlight": "#4DFFB8", "highlightStyle": "color", "stroke": 9, "strokeColor": "#000000", "shadow": 10, "shadowColor": "rgba(0,0,0,0.5)", "background": null, "y": 0.7, "maxWidth": 0.86, "animation": "pop", "punctuation": false },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.35, "padding": 0.08 }, "punchZoom": 1.08 },
+    "audio": { "enhance": true, "music": null },
+    "layers": []
+  }
+}

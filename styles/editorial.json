@@ -1,0 +1,15 @@
+{
+  "name": "Editorial",
+  "emoji": "📰",
+  "description": "Magazine typography. Ivory serif headlines, a lime accent, marker highlights.",
+  "vibe": "An editorial magazine come to life. Ivory text, serif display headlines, one lime accent used sparingly. Captions in a clean grotesk with the key word underlined in lime. Hook title as a serif headline with one accent word (*stars*). Use marker-highlight for the key phrase, quote-card for the strongest line, chapter-title when the topic shifts. Calm smooth zooms. No emoji or GIFs. Every graphic should look like it belongs on a printed page.",
+  "look": {
+    "format": { "aspect": "9:16", "fps": 30 },
+    "frame": { "fit": "fill", "track": "face", "scale": 1 },
+    "grade": { "brightness": 1.01, "contrast": 1.06, "saturation": 0.95, "warmth": 0.12, "vignette": 0.2, "grain": 0.1 },
+    "captions": { "enabled": true, "mode": "phrase", "maxWords": 5, "maxChars": 22, "lines": 2, "font": "Inter", "weight": 700, "size": 64, "uppercase": false, "letterSpacing": -1, "lineHeight": 1.12, "color": "#F4F1EA", "highlight": "#C8FF3D", "highlightStyle": "underline", "stroke": 0, "shadow": 20, "shadowColor": "rgba(0,0,0,0.5)", "background": null, "y": 0.73, "maxWidth": 0.8, "animation": "slide", "punctuation": true },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.45, "padding": 0.12 }, "punchZoom": 1 },
+    "audio": { "enhance": true, "music": null },
+    "layers": []
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "Tech",
+  "emoji": "🛰️",
+  "description": "Cool, precise, HUD-flavoured. For tools, AI, software and how-tos.",
+  "vibe": "Precise and modern, like a well-made tech explainer. Cool grade, grotesk captions with a boxed highlight. When the speaker names a tool, product or step, show it: stat-card, checklist, counter, browser-window or phone-mockup (only with real screenshots from assets), focus-brackets on the face when introducing themselves. One glitch at most, on a genuine twist. Smooth zooms rather than snaps. Never more than one graphic on screen at once; give each 2-4 seconds.",
+  "look": {
+    "format": { "aspect": "9:16", "fps": 30 },
+    "frame": { "fit": "fill", "track": "face", "scale": 1 },
+    "grade": { "brightness": 1, "contrast": 1.1, "saturation": 0.95, "warmth": -0.2, "vignette": 0.25, "grain": 0 },
+    "captions": { "enabled": true, "mode": "phrase", "maxWords": 4, "maxChars": 20, "lines": 2, "font": "Space Grotesk", "weight": 700, "size": 70, "uppercase": false, "letterSpacing": -0.5, "lineHeight": 1.12, "color": "#FFFFFF", "highlight": "#5CE1E6", "highlightStyle": "box", "boxColor": "#5CE1E6", "boxTextColor": "#05080A", "stroke": 0, "shadow": 18, "shadowColor": "rgba(0,0,0,0.6)", "background": null, "y": 0.71, "maxWidth": 0.84, "animation": "slide", "punctuation": false },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.4, "padding": 0.1 }, "punchZoom": 1 },
+    "audio": { "enhance": true, "music": null },
+    "layers": [ { "type": "progress", "y": 0, "height": 8, "color": "#5CE1E6", "background": "rgba(255,255,255,0.12)", "start": 0, "end": null } ]
+  }
+}

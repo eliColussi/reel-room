@@ -1,0 +1,15 @@
+{
+  "name": "Clean",
+  "emoji": "🤍",
+  "description": "Premium and quiet, like a product film. Great captions, almost nothing else.",
+  "vibe": "Restraint is the style. Think Apple keynote film, not a TikTok edit. Captions are the hero: sentence case, calm, never shouting. No emoji, no GIFs, no stickers, no sound effects. Zooms only as slow pushes (ease \"push\", scale 1.06-1.12) on the two or three lines that matter most. A hook title is fine if it is short, in the same font as the captions, and fades in. Remove dead air with silence cuts but keep natural breathing room. If you add anything else, it must look like it was designed, and there should rarely be more than one thing on screen besides the speaker and captions.",
+  "look": {
+    "format": { "aspect": "9:16", "fps": 30 },
+    "frame": { "fit": "fill", "track": "face", "scale": 1 },
+    "grade": { "brightness": 1.02, "contrast": 1.05, "saturation": 1.03, "warmth": 0.05, "vignette": 0.12, "grain": 0 },
+    "captions": { "enabled": true, "mode": "phrase", "maxWords": 6, "maxChars": 24, "lines": 2, "font": "Inter", "weight": 600, "size": 62, "uppercase": false, "letterSpacing": -0.5, "lineHeight": 1.18, "color": "#FFFFFF", "highlight": "#FFFFFF", "highlightStyle": "none", "stroke": 0, "shadow": 22, "shadowColor": "rgba(0,0,0,0.45)", "background": null, "y": 0.74, "maxWidth": 0.8, "animation": "fade", "punctuation": true },
+    "cuts": { "silence": { "enabled": true, "minGap": 0.55, "padding": 0.14 }, "punchZoom": 1 },
+    "audio": { "enhance": true, "music": null },
+    "layers": []
+  }
+}
